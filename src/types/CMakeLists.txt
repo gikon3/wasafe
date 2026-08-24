@@ -1,0 +1,10 @@
+target_sources(wasafe
+    PRIVATE
+    aggregate.cpp
+    column_view.cpp
+    logic_vector_view.cpp
+    logic_vector.cpp
+    time_column.cpp
+    type.cpp
+    value.cpp
+)

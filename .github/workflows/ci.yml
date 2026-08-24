@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: clang-22 Debug (${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [asan-ubsan, tsan]
+
+    env:
+      CC: clang-22
+      CXX: clang++-22
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # g++-15 нужен ради libstdc++ 15: на ubuntu-24.04 по умолчанию стоит
+      # libstdc++ 13, а в репозиториях noble максимум 14. При этом libstdc++ 14
+      # не собирается clang'ом на std::ranges::to: в bits/move.h std::forward_like
+      # объявлен с выводимым типом возврата и используется в __like_t до своего
+      # определения (в libstdc++ 15 это переписано). Clang сам выбирает самую
+      # свежую найденную установку GCC.
+      - name: Установить clang 22 и сборочные инструменты
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get install -y ninja-build g++-15
+          clang++-22 --version
+
+      # Страховка: если clang по какой-то причине выберет libstdc++ ниже 15,
+      # лучше упасть здесь с внятным сообщением, чем в середине сборки на
+      # многоэкранной ошибке инстанцирования шаблонов.
+      - name: Проверить выбранную libstdc++
+        run: |
+          echo | clang++-22 -x c++ -stdlib=libstdc++ -E -v - 2>&1 | grep -m1 'Selected GCC installation'
+          printf '#include <version>\n#if _GLIBCXX_RELEASE < 15\n#error "нужна libstdc++ >= 15"\n#endif\n' > "$RUNNER_TEMP/libstdcxx-check.cpp"
+          clang++-22 -std=c++23 -stdlib=libstdc++ -fsyntax-only "$RUNNER_TEMP/libstdcxx-check.cpp"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Установить Conan
+        run: pip install "conan>=2.0"
+
+      - name: Кеш пакетов Conan
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-ubuntu24-clang22-gcc15-${{ matrix.profile }}-${{ hashFiles('conanfile.py', '.github/conan/*') }}
+          restore-keys: |
+            conan-ubuntu24-clang22-gcc15-${{ matrix.profile }}-
+
+      # Зависимости (zstd, gtest) собираются с теми же санитайзерами, что и проект.
+      - name: Установить зависимости
+        run: conan install . --build=missing -pr:a .github/conan/${{ matrix.profile }}
+
+      # Компилятор, стандарт и флаги санитайзеров приходят из toolchain (то есть
+      # из профиля); CMAKE_BUILD_TYPE toolchain не задаёт — он живёт в пресете
+      # Conan, поэтому передаём его явно.
+      - name: Сконфигурировать
+        run: |
+          cmake -S . -B build/Debug -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=build/Debug/generators/conan_toolchain.cmake \
+            -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Собрать
+        run: cmake --build build/Debug --parallel
+
+      - name: Прогнать тесты
+        env:
+          ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1
+        run: ctest --test-dir build/Debug --output-on-failure --parallel $(nproc)
+
+      # В кеш уезжают только бинарные пакеты, без исходников и сборочных папок.
+      - name: Почистить кеш Conan перед сохранением
+        if: always()
+        run: conan cache clean "*" --source --build --temp

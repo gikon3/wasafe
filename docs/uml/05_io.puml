@@ -1,0 +1,108 @@
+@startuml 05_io
+title I/O слой — Builder, контракт Reader, связка ingest()
+
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Consolas
+
+' ──────────────── Builder ────────────────
+interface Builder <<единый приёмник>> {
+    «──── Фаза 1: заголовок ────»
+    + {abstract} setTimeScale(scale)
+    + {abstract} beginScope(name, kind) : ScopeId
+    + {abstract} endScope()
+    + {abstract} declareVar(name, type, alias?) : SignalId
+    + {abstract} headerDone()
+    --
+    «──── Фаза 2: значения ────»
+    + {abstract} setTime(t)
+    + {abstract} valueChange(id, value)
+    --
+    «──── Завершение ────»
+    + {abstract} finish()
+    + {abstract} takeDatabase() : Database
+    --
+    note: Любой парсер пишет ТОЛЬКО\nчерез этот интерфейс.\nНичего не знает о storage.
+}
+
+class MemoryBuilder <<impl>> {
+    - backend_ : MemoryStorage
+    --
+    + takeDatabase() : Database
+    note: наполняет всё в ОЗУ;\ntakeDatabase() отдаёт готовую БД
+}
+
+class IndexingBuilder <<impl>> {
+    - store_   : filesystem::path
+    - out_     : ofstream        «открыт с конструктора»
+    - streams_ : vector<Stream>  «накопитель ≤ одного блока на поток»
+    - index_   : SignalIndex
+    - buffered_ / bufferBytes_
+    --
+    + takeDatabase() : Database
+    note right
+      Пишет нормализованные блоки
+      на диск (*.wsfstore) ПОТОКОВО:
+      блок уходит, как только набрал
+      blockChanges изменений, а при
+      превышении bufferBytes самые
+      крупные накопители сбрасываются
+      досрочно. Диаграмма целиком
+      в ОЗУ не собирается.
+      БД читает блоки лениво
+      через LazyStorage.
+    end note
+}
+
+Builder <|.. MemoryBuilder
+Builder <|.. IndexingBuilder
+
+note as NF
+  **Фабричные функции:**
+  makeMemoryBuilder() → unique_ptr<Builder>
+  makeIndexingBuilder(store, IndexingOptions{
+      blockChanges = 4096,     // изменений в блоке
+      bufferBytes  = 64 MiB})  // потолок накопителей
+end note
+
+' ──────────────── Reader / Writer ────────────────
+interface Reader <<контракт для внешних проектов>> {
+    + {abstract} format() : string_view
+    + {abstract} read(sink : Builder&)
+    + readHeader(sink : Builder&)   «по умолчанию = read»
+}
+
+interface Writer {
+    + {abstract} format() : string_view
+    + {abstract} write(db, path)
+}
+
+' ──────────────── Внешние проекты-форматы ────────────────
+package "отдельные проекты (вне этого репозитория)" <<Cloud>> {
+    class VcdReader <<external>>
+    class FstReader <<external>>
+    class "…свой формат" as AnyReader <<external>>
+}
+
+Reader <|.. VcdReader
+Reader <|.. FstReader
+Reader <|.. AnyReader
+
+' ──────────────── ingest ────────────────
+class "ingest(reader, sink) : Database" as Ingest <<free function>> {
+    note: reader.read(sink)\nsink.finish()\nsink.takeDatabase()
+}
+
+Reader  --> Ingest  : выбирает ПОЛЬЗОВАТЕЛЬ
+Builder --> Ingest
+Ingest  --> Database
+
+note as NOPEN
+  Реестра форматов и автоопределения
+  по сигнатуре НЕТ. Ядро не зависит
+  ни от одного формата:
+  1. пользователь создаёт нужный Reader
+  2. выбирает приёмник (ОЗУ или store)
+  3. ingest(reader, *sink) → Database
+end note
+
+@enduml

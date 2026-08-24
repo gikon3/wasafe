@@ -1,0 +1,23 @@
+#pragma once
+
+#include <string_view>
+
+#include "wasafe/version.hpp"
+
+/// 1, если библиотека собрана со сжатием блоков через zstd (опция CMake
+/// WASAFE_WITH_ZSTD / опция Conan with_zstd), иначе 0. Макрос, а не только
+/// константа: нужен в #if — под ним прячется включение <zstd.h>.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage,modernize-macro-to-enum)
+#define WASAFE_HAS_ZSTD @WASAFE_HAS_ZSTD@
+
+namespace WaSafe {
+
+inline constexpr std::string_view kDescription{"@PROJECT_DESCRIPTION@"};
+inline constexpr std::string_view kHomePageUrl{"@PROJECT_HOMEPAGE_URL@"};
+
+/// Читаются и пишутся ли блоки, сжатые zstd. При false IndexingBuilder кладёт
+/// блоки без сжатия (codec == NONE), а чтение чужого store с codec == ZSTD
+/// бросает исключение.
+inline constexpr bool kHasZstd = WASAFE_HAS_ZSTD != 0;
+
+}  // namespace WaSafe

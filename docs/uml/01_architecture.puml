@@ -1,0 +1,83 @@
+@startuml 01_architecture
+title Архитектура wasafe — слои и зависимости
+
+skinparam packageStyle rectangle
+skinparam defaultFontName Consolas
+skinparam arrowColor #555555
+skinparam packageBorderColor #999999
+
+package "Пользовательский код" as user #E8F4FD {
+}
+
+package "io/" as io #FFF9C4 {
+    [WaveformBuilder]  <<interface>>
+    [Reader]           <<interface>>
+    [Writer]           <<interface>>
+    [ingest()]         <<free function>>
+    note bottom of [ingest()]
+      Связка reader → builder.
+      Реестра форматов нет:
+      Reader выбирает пользователь.
+    end note
+}
+
+package "проекты-форматы (вне репозитория)" as formats #FFFFFF {
+    [VcdReader]        <<external>>
+    [FstReader]        <<external>>
+}
+
+package "storage/" as storage #E8F5E9 {
+    [Database]
+    [Storage]   <<interface>>
+    [MemoryStorage]
+    [LazyStorage]
+    [SignalIndex]
+    [SignalQuery]
+}
+
+package "model/" as model #F3E5F5 {
+    [Hierarchy]
+    [Signal]
+    [Scope]
+}
+
+package "types/" as types #FBE9E7 {
+    [TypeDescriptor]   <<hierarchy>>
+    [Value / ValueView]
+    [LogicVector]
+}
+
+package "core/" as core #ECEFF1 {
+    [Time / TimeRange / TimeScale]
+    [Exception]
+    [SignalId / ScopeId / NodeId]
+    [StringMap]
+}
+
+' зависимости сверху вниз
+user --> io         : ingest / query
+user --> formats    : создаёт нужный Reader
+user --> storage    : Database
+user --> model      : Signal / Scope
+
+io --> storage      : WaveformBuilder наполняет backend
+io --> model        : строит Hierarchy
+storage --> model   : читает Hierarchy
+model --> types     : Type, Value
+storage --> types   : ValueView, Value
+io --> types        : Type при declareVar
+types --> core
+model --> core
+storage --> core
+io --> core
+
+[VcdReader] ..|> [Reader]          : реализует контракт
+[FstReader] ..|> [Reader]          : реализует контракт
+[ingest()] --> [WaveformBuilder]   : reader.read(sink)
+[Database] --> [Storage]
+[Database] --> [Hierarchy]
+[MemoryStorage] ..|> [Storage]
+[LazyStorage] ..|> [Storage]
+[LazyStorage] --> [SignalIndex]
+
+@enduml

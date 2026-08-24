@@ -1,0 +1,13 @@
+target_sources(wasafe
+    PRIVATE
+    database.cpp
+    decoded_block.cpp
+    decompress.cpp
+    file_block_source.cpp
+    lazy_storage.cpp
+    memory_block_source.cpp
+    memory_storage.cpp
+    merge_cursor.cpp
+    signal_index.cpp
+    storage.cpp
+)

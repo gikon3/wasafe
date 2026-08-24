@@ -1,0 +1,162 @@
+@startuml 02_types
+title Система типов — TypeDescriptor и Value
+
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Consolas
+
+' ──────────────── Иерархия типов ────────────────
+abstract class TypeDescriptor {
+    + kind() : TypeKind
+    + name() : string_view
+    + fourState() : bool
+    + {abstract} bitWidth() : uint32_t
+    + {abstract} elementCount() : size_t
+    + isScalar() / isVector() / ...
+    + as<T>() : const T*
+}
+
+class ScalarType {
+    + bitWidth() = 1
+}
+
+class VectorType {
+    - msb_ : int32_t
+    - lsb_ : int32_t
+    - signed_ : bool
+    + bitWidth() = |msb-lsb|+1
+}
+
+class ArrayType {
+    - element_ : Type
+    - left_ : int32_t
+    - right_ : int32_t
+    - packed_ : bool
+    + elementType() : Type
+    + elementCount() : size_t
+    + ordinalOf(index) : size_t
+    + indexOf(ordinal) : int32_t
+    note: многомерность — вложением\n logic[7:0] m[0:3][0:1]\n = Array{0:3, Array{0:1, Vector[7:0]}}
+}
+
+class StructType {
+    - members_ : vector<StructMember>
+    - packed_ : bool
+    + members() : span<StructMember>
+    + elementCount() : size_t
+    + indexOf(name) : size_t
+    + bitWidth() : sum of members
+}
+
+class EnumType {
+    - base_ : Type
+    - entries_ : vector<EnumEntry>
+    + labelOf(value) : string_view
+}
+
+class RealType {
+    - short_ : bool
+    + bitWidth() = 0
+}
+
+class StringType {
+    + bitWidth() = 0
+}
+
+TypeDescriptor <|-- ScalarType
+TypeDescriptor <|-- VectorType
+TypeDescriptor <|-- ArrayType
+TypeDescriptor <|-- StructType
+TypeDescriptor <|-- EnumType
+TypeDescriptor <|-- RealType
+TypeDescriptor <|-- StringType
+
+ArrayType *-- "element" TypeDescriptor
+StructType *-- "members" StructMember
+EnumType *-- "base" TypeDescriptor
+
+class StructMember {
+    + name : string
+    + type : Type
+    + bitOffset : uint32_t
+}
+
+' ──────────────── Значения ────────────────
+enum ValueKind {
+    NONE
+    LOGIC
+    REAL
+    STRING
+    AGGREGATE
+}
+
+class LogicVector <<владеющий>> {
+    - a_[] : uint64_t  «aval бит-план»
+    - b_[] : uint64_t  «bval бит-план»
+    - width_ : uint32_t
+    + set(bit, Logic) / test(bit)
+    + operator[](bit) : LogicRef  «прокси записи»
+    + assignFromChars(sv)
+    + assignFromUint64(v)
+    + pushBack / popBack / resize / flip
+    + operator LogicVectorView()
+}
+
+class LogicVectorView <<невладеющий>> {
+    - a_ / b_ : const uint64_t*
+    - width_  : uint32_t
+    + operator[](bit) : Logic
+    + isTwoState() : bool
+    + toUint64() : optional<uint64_t>
+    + toString() : string
+    + aval() / bval() : span<const uint64_t>
+    + {static} wordsFor(width) : uint32_t
+    note right
+      b_ == nullptr означает
+      ДВУХЗНАЧНОЕ значение
+      (все b-биты нулевые);
+      bval() тогда пуст.
+      Источник вправе не
+      хранить bval-план.
+    end note
+}
+
+class Value <<владеющий>> {
+    - storage_ : variant<\n  monostate | LogicVector\n  | double | string\n  | Aggregate>
+    + Value(LogicVector | double | string | Aggregate | LogicVectorView)
+    + kind() : ValueKind
+    + valid() : bool
+    + isLogic() / isReal() / isString() / isAggregate()
+    + asLogic() : LogicVector&
+    + asReal() : double
+    + asString() : string&
+    + asAggregate() : Aggregate&
+    + ifLogic() / ifReal() / ifString() / ifAggregate()  «либо nullptr»
+    + operator ValueView()
+    note: рекурсивен для\nstruct/array агрегатов
+}
+
+class ValueView <<невладеющий>> {
+    - value_ : variant<monostate | LogicVectorView | double | string_view>
+    + ValueView(LogicVectorView | double | string_view | const LogicVector&)
+    + valid() : bool
+    + kind() : ValueKind
+    + logic() : LogicVectorView
+    + real() : double
+    + string() : string_view
+    note: указывает внутрь storage;\nвалиден, пока жив источник
+}
+
+enum Logic {
+    ZERO = 0
+    ONE  = 1
+    Z    = 2
+    X    = 3
+}
+
+LogicVectorView --> Logic
+LogicVector --> LogicVectorView : operator LogicVectorView()
+Value --> LogicVector : asLogic()
+Value --> ValueView : operator ValueView()
+ValueView --> LogicVectorView : logic()
+
+@enduml

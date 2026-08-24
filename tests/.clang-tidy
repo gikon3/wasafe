@@ -1,0 +1,8 @@
+# Конфигурация для тестов наследует корневую и ослабляет проверки, которые
+# для тестового кода дают только шум:
+#   * unchecked-optional-access — типичный паттерн ASSERT_TRUE(opt); opt->...;
+#   * function-cognitive-complexity — тело TEST(...) это длинная цепочка проверок.
+InheritParentConfig: true
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -readability-function-cognitive-complexity

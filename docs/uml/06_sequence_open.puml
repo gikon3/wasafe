@@ -1,0 +1,120 @@
+@startuml 06_sequence_open
+title Последовательность: ленивое открытие файла + запрос по диапазону
+
+skinparam defaultFontName Consolas
+skinparam sequenceMessageAlign center
+
+actor "Пользователь" as user
+participant "ingest()" as db
+participant "VcdReader\n(из проекта-формата)" as reader
+participant "IndexingBuilder\n(или MemoryBuilder)" as builder
+participant "Hierarchy" as hier
+participant "LazyStorage\n(или MemoryStorage)" as backend
+participant "SignalIndex" as idx
+participant "Signal" as sig
+participant "ValueCursor" as cur
+
+== Разбор источника ==
+
+user -> reader  : new VcdReader("dump.vcd")   «формат выбирает пользователь»
+user -> builder : makeIndexingBuilder("dump.wsfstore")  «или makeMemoryBuilder()»
+user -> db      : ingest(reader, *builder)
+
+db -> reader    : read(*builder)
+activate reader
+
+  reader -> builder : setTimeScale({ps, 1})
+  loop для каждого $scope/$upscope/$var
+    reader -> builder : beginScope("cpu", Module)
+    reader -> builder : declareVar("regs", ArrayType{...}) : SignalId
+    reader -> builder : endScope()
+  end
+
+  reader -> builder : headerDone()
+  note right of builder
+    Hierarchy зафиксирована.
+    Иерархия уже доступна.
+  end note
+
+  loop поток изменений '#t … val'
+    reader -> builder : setTime(1000)
+    reader -> builder : valueChange(id, ValueView)
+    note right of builder
+      IndexingBuilder накапливает
+      блоки; периодически пишет
+      BlockRef в SignalIndex.
+    end note
+  end
+
+  reader -> builder : finish()
+deactivate reader
+
+builder -> hier : построена Hierarchy
+builder -> idx  : построен SignalIndex
+builder -> backend : LazyStorage(index, FileBlockSource)
+
+db -> builder : takeDatabase()
+db --> user : Database
+
+== Поиск сигнала по имени ==
+
+user -> db : find("top.cpu.regs[3].valid")
+db -> hier  : findSignal("top.cpu.regs[3].valid")
+note right of hier
+  Разбивает путь по '.'/']'
+  и спускается по scopeIndex →
+  signalIndex → memberIndex.
+end note
+hier --> db : NodeId
+db -> sig   : Signal{db, NodeId}
+db --> user : optional<Signal>
+
+== Запрос значений по диапазону времени ==
+
+user -> sig : changes({1000, 2000})
+sig -> db   : changes(node, {1000, 2000})
+db -> backend : openCursor(SignalId, {1000, 2000})
+
+activate backend
+  backend -> idx : locate(SignalId)
+  idx -> idx     : blocksIn({1000,2000})  «бинарный поиск»
+  note right of idx
+    Возвращает [first,last)
+    — только нужные блоки.
+  end note
+  backend -> backend : загрузить блоки из файла\n(распаковать zstd/lz4/zlib)
+  backend --> db     : unique_ptr<Cursor>
+deactivate backend
+
+db --> sig  : ValueCursor
+sig --> user : ValueCursor
+
+loop while cursor.next()
+  user -> cur : next()
+  cur --> user : ValueChange{time, ValueView}
+  user -> user : use(time, logic.toString())
+end
+
+== Точечный запрос значения композита ==
+
+user -> sig : valueAt(1500)
+sig -> db   : valueAt(node, 1500)
+
+note right of db
+  Если узел — composite:
+  рекурсивно обходит children,
+  собирает Value{Aggregate}.
+
+  Если packed BitSlice:
+  читает родительский поток,
+  вырезает [offset, offset+width).
+
+  Если лист:
+  backend.valueAt(streamId, 1500).
+end note
+
+db -> backend : valueAt(SignalId, 1500)
+backend --> db : ValueView
+db --> user    : Value (агрегат или листовое)
+
+@enduml

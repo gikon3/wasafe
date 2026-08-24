@@ -1,0 +1,235 @@
+---
+Checks:
+  - -*
+  - bugprone-*
+  - -bugprone-easily-swappable-parameters
+  - -bugprone-narrowing-conversions
+  - -bugprone-throwing-static-initialization
+  - clang-analyzer-*
+  - -clang-analyzer-webkit.*
+  - -clang-analyzer-fuchsia.*
+  - concurrency-mt-unsafe
+  - concurrency-thread-canceltype-asynchronous
+  - cppcoreguidelines-*
+  - -cppcoreguidelines-avoid-magic-numbers
+  - -cppcoreguidelines-c-copy-assignment-signature
+  - -cppcoreguidelines-explicit-constructor
+  - -cppcoreguidelines-explicit-virtual-functions
+  - -cppcoreguidelines-macro-to-enum
+  - -cppcoreguidelines-narrowing-conversions
+  - -cppcoreguidelines-noexcept-destructor
+  - -cppcoreguidelines-noexcept-move-operations
+  - -cppcoreguidelines-noexcept-swap
+  - -cppcoreguidelines-non-private-member-variables-in-classes
+  - -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
+  - -cppcoreguidelines-pro-bounds-constant-array-index
+  - -cppcoreguidelines-pro-bounds-pointer-arithmetic
+  - -cppcoreguidelines-use-default-member-init
+  - misc-*
+  - -misc-include-cleaner
+  - -misc-multiple-inheritance
+  - -misc-non-private-member-variables-in-classes
+  - modernize-*
+  - -modernize-raw-string-literal
+  - -modernize-use-auto
+  - -modernize-use-designated-initializers
+  - -modernize-use-integer-sign-comparison
+  - -modernize-use-nodiscard
+  - -modernize-use-trailing-return-type
+  - performance-*
+  - -performance-avoid-endl
+  - -performance-enum-size
+  - portability-no-assembler
+  - portability-std-allocator-const
+  - portability-template-virtual-member-function
+  - readability-*
+  - -readability-avoid-unconditional-preprocessor-if
+  - -readability-convert-member-functions-to-static
+  - -readability-enum-initial-value
+  - -readability-function-size
+  - -readability-identifier-length
+  - -readability-implicit-bool-conversion
+  - -readability-magic-numbers
+  - -readability-math-missing-parentheses
+  - -readability-named-parameter
+  - -readability-redundant-access-specifiers
+  - -readability-redundant-member-init
+  - -readability-static-accessed-through-instance
+  - -readability-suspicious-call-argument
+  - -readability-trailing-comma
+  - -readability-uppercase-literal-suffix
+  - -readability-use-std-min-max
+
+CheckOptions:
+  - key: misc-const-correctness.AllowedTypes
+    value: 'std::string_view;std::span;std::jthread;std::thread;boost::io::ios_all_saver;testing::InSequence'
+
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'sc_core::sc_module_name'
+  - key: performance-inefficient-string-concatenation.StrictMode
+    value: 'true'
+
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: 3
+
+  - key: readability-identifier-naming.AbstractClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassConstexprCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassConstexprPrefix
+    value: 'k'
+  - key: readability-identifier-naming.ClassConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.ClassMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.ClassMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ClassMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.ConstantMemberCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantMemberPrefix
+    value: 'k'
+  - key: readability-identifier-naming.ConstantParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.ConstantPointerParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.ConstexprFunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.ConstexprMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.GlobalConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalConstantPointerCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPointerPrefix
+    value: 'k'
+  - key: readability-identifier-naming.GlobalFunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.GlobalPointerCase
+    value: camelBack
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.InlineNamespaceCase
+    value: CamelCase
+  - key: readability-identifier-naming.LocalConstexprVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalConstantPointerCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalPointerCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MemberCase
+    value: camelBack
+  - key: readability-identifier-naming.MemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.MethodCase
+    value: camelBack
+  - key: readability-identifier-naming.NamespaceCase
+    value: CamelCase
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterPackCase
+    value: camelBack
+  - key: readability-identifier-naming.PointerParameterCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ProtectedMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.PublicMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PublicMemberSuffix
+    value: ''
+  - key: readability-identifier-naming.PublicMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.ScopedEnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.StaticConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticConstexprVariablePrefix
+    value: 'k'
+  - key: readability-identifier-naming.StaticConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticConstantPrefix
+    value: 'k'
+  - key: readability-identifier-naming.StaticVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.TemplateTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+  - key: readability-identifier-naming.ValueTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ValueTemplateParameterPrefix
+    value: 'k'
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.VirtualMethodCase
+    value: camelBack
+
+  - key: readability-inconsistent-declaration-parameter-name.Strict
+    value: 'true'
+
+  - key: readability-operators-representation.BinaryOperators
+    value: '&&;&=;&;|;~;!;!=;||;|=;^;^='
+  - key: readability-operators-representation.OverloadedOperators
+    value: '&&;&=;&;|;~;!;!=;||;|=;^;^='
+
+  - key: readability-redundant-inline-specifier.StrictMode
+    value: 'true'
+
+  - key: readability-redundant-string-cstr.StringParameterFunctions
+    value: 'fmt::format'
+
+  - key: readability-uniqueptr-delete-release.PreferResetCall
+    value: 'true'

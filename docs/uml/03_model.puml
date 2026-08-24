@@ -1,0 +1,150 @@
+@startuml 03_model
+title Модель иерархии — Hierarchy, Scope, Signal
+
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Consolas
+
+' ──────────────── Узлы иерархии (данные) ────────────────
+class ScopeNode <<data>> {
+    + name : string
+    + kind : ScopeKind
+    + parent : ScopeId
+    + childScopes : vector<ScopeId>
+    + signals : vector<NodeId>
+    + scopeIndex : StringMap<ScopeId>
+    + signalIndex : StringMap<NodeId>
+}
+
+class SignalNode <<data>> {
+    + name : string
+    + type : Type  (shared_ptr<TypeDescriptor>)
+    + scope : ScopeId
+    + parent : NodeId  «kInvalidNode для корня»
+    + stream : SignalId   «invalid если нет потока»
+    + projection : Projection
+    + children : vector<NodeId>
+    + memberIndex : StringMap<NodeId>
+}
+
+class Projection <<data>> {
+    + kind : Kind  {None | BitSlice}
+    + offset : uint32_t
+    + width : uint32_t
+    note: BitSlice = packed-член\nчитается как срез\nродительского потока
+}
+
+SignalNode *-- Projection
+
+' ──────────────── Хранилище иерархии ────────────────
+class Hierarchy {
+    - scopes_ : vector<ScopeNode>
+    - nodes_  : vector<SignalNode>
+    - root_   : ScopeId
+    --
+    + root() : ScopeId
+    + addScope(parent, name, kind) : ScopeId
+    + addSignal(scope, name, type, stream) : NodeId
+    + addMember(parent, name, type, stream, proj) : NodeId
+    + addElement(parent, index, type, stream, proj) : NodeId
+    --
+    + scopeNode(id) : const ScopeNode&
+    + signalNode(i) : const SignalNode&
+    + findSignal(path) : optional<NodeId>
+    + findScope(path)  : optional<ScopeId>
+    + pathOf(NodeId) : string
+    + pathOf(ScopeId)   : string
+}
+
+Hierarchy *-- "scopes_[]" ScopeNode
+Hierarchy *-- "nodes_[]" SignalNode
+
+' ──────────────── Публичные хэндлы (лёгкие, копируемые) ────────────────
+note as N1
+  Хэндлы — пара (db*, индекс).
+  Копируются свободно.
+  Валидны пока жива Database.
+end note
+
+class Signal <<handle>> {
+    - db_ : const Database*
+    - node_ : NodeId
+    --
+    + name() : string_view
+    + fullPath() : string
+    + type() : Type
+    + kind() : TypeKind
+    + width() : uint32_t
+    --
+    + isLeaf() / isComposite()
+    + hasOwnStream()
+    + streamId() : optional<SignalId>
+    --
+    «единый доступ к вложенности:»
+    + childCount() : size_t
+    + child(ordinal) : Signal
+    + child(name)    : Signal
+    + operator[](i)  : Signal
+    + parent()       : Signal
+    + children()     : SignalChildRange
+    --
+    «единый доступ к значениям:»
+    + valueAt(t)          : Value
+    + changes(range)       : ValueCursor
+    + nextChange(after)   : TimeStamp
+    + prevChange(before)  : TimeStamp
+}
+
+class Scope <<handle>> {
+    - db_ : const Database*
+    - id_ : ScopeId
+    --
+    + name() : string_view
+    + fullPath() : string
+    + kind() : ScopeKind
+    + parent() : Scope
+    --
+    + scopeCount()   : size_t
+    + scope(index)    : Scope
+    + scope(name)     : Scope
+    + scopes()        : ScopeRange
+    --
+    + signalCount()  : size_t
+    + signal(index)   : Signal
+    + signal(name)    : Signal
+    + signals()       : SignalChildRange
+}
+
+class SignalChildRange <<range>> {
+    - db_    : const Database*
+    - nodes_ : const NodeId*
+    - count_ : size_t
+    --
+    «поддерживает range-based for»
+    + begin() / end() / size()
+    note: один тип для членов\nкомпозита И сигналов scope
+}
+
+class ScopeRange <<range>> {
+    + begin() / end() / size()
+}
+
+Signal --> SignalChildRange  : children()
+Signal -o Signal             : child() / parent()
+Scope  --> SignalChildRange  : signals()
+Scope  --> ScopeRange        : scopes()
+Scope  -o Scope              : scope() / parent()
+
+Signal ..> Hierarchy         : читает (через db_)
+Scope  ..> Hierarchy         : читает (через db_)
+
+enum ScopeKind {
+    Root / Module / Interface
+    Package / Program
+    Task / Function / Block
+    GenerateBlock / Struct / Union
+    Array / Class / Unknown
+}
+
+Scope --> ScopeKind
+
+@enduml

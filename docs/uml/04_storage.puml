@@ -1,0 +1,263 @@
+@startuml 04_storage
+title Хранилище значений — Storage, Database, SignalIndex
+
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Consolas
+
+' ──────────────── Абстрактное хранилище ────────────────
+interface Storage {
+    + {abstract} timeRange() : TimeRange
+    + {abstract} timeScale() : TimeScale
+    --
+    «точечный доступ:»
+    + {abstract} valueAt(id, t) : ValueView
+    --
+    «потоковый ленивый доступ:»
+    + {abstract} openCursor(id, range) : unique_ptr<Cursor>
+    --
+    «навигация по фронтам:»
+    + {abstract} nextChange(id, after)  : TimeStamp
+    + {abstract} prevChange(id, before) : TimeStamp
+    --
+    «управление кэшем (no-op для in-memory):»
+    + prefetch(ids, range)
+    + release(keep)
+    + cachedBytes() : size_t
+}
+
+interface Cursor {
+    + {abstract} next()    : bool
+    + {abstract} current() : const ValueChange&
+}
+
+class ValueCursor <<wrapper>> {
+    - impl_ : unique_ptr<Cursor>
+    + next()    : bool
+    + current() : const ValueChange&
+    + operator->() / operator*()
+}
+
+class ValueChange <<data>> {
+    + time  : TimeStamp
+    + value : ValueView
+}
+
+ValueCursor *-- Cursor
+Cursor --> ValueChange : current()
+
+' ──────────────── Поколоночная раскладка (общая) ────────────────
+class ColumnView <<view>> {
+    «невладеющий срез значений одного потока»
+    - width : uint32_t
+    - aval  : span<const uint64_t>
+    - bval  : span<const uint64_t>  «ПУСТ => поток двухзначный»
+    --
+    + valueAt(i) : ValueView
+    note right
+      i-е изменение занимает
+      [i*words, i*words+words)
+      в каждом плане.
+      Пустой bval => ValueView
+      получает bval == nullptr
+      (все b-биты нулевые).
+    end note
+}
+
+class TimeColumn <<owning>> {
+    - base_   : TimeStamp
+    - narrow_ : vector<uint32_t>   «смещения от base_»
+    - wide_   : vector<TimeStamp>  «после повышения»
+    --
+    + append(t)
+    + operator[](i) / front() / back() / size()
+    + upperBound(t) / lowerBound(t)   «O(log n)»
+    + slice(lo, hi) / byteSize()
+    note right
+      4 Б на метку вместо 8.
+      При разности > UINT32_MAX
+      колонка ОДНОКРАТНО
+      повышается до абсолютных
+      64-битных меток.
+    end note
+}
+
+' ──────────────── In-memory хранилище ────────────────
+class MemoryStorage {
+    - streams_ : vector<Stream>
+    - timeRange_ / timeScale_
+    --
+    «наполнение (через MemoryBuilder):»
+    + createStream(kind, width) : SignalId
+    + append(id, t, value)
+    + finalize()
+    --
+    «реализация Storage»
+}
+
+class "MemoryStorage::Stream" <<data>> {
+    - times_  : TimeColumn
+    - values_ : variant<monostate, LogicStore, RealStore, StringStore>
+    --
+    + append(t, value)
+    + times()   : const TimeColumn&
+    + columns() : ColumnView
+}
+
+MemoryStorage *-- "streams_[]" "MemoryStorage::Stream"
+"MemoryStorage::Stream" *-- TimeColumn
+"MemoryStorage::Stream" --> ColumnView : columns()
+
+' ──────────────── Ленивое file-based хранилище ────────────────
+class LazyStorage {
+    - index_  : SignalIndex
+    - source_ : unique_ptr<BlockSource>
+    - cache_  : unique_ptr<BlockCache>
+    - opts_   : Options
+    --
+    «реализация Storage»
+    note: блоки подгружаются из файла\nпо запросу range; LRU-кэш\nне превышает opts_.cacheBytes
+}
+
+class "LazyStorage::BlockCache" <<pimpl>> {
+    - limit_ : size_t
+    - lru_   : list<Entry>  «front = MRU»
+    - map_   : offset -> итератор
+    + bytes() : size_t
+    note: LRU-вытеснение при\nпревышении cacheBytes
+}
+
+interface BlockSource {
+    + {abstract} readBlock(BlockRef) : vector<byte>
+    note: источник байт:\nфайл на диске (FileBlockSource),\nОЗУ (MemoryBlockSource), облако…
+}
+
+class DecodedBlock <<data>> {
+    - times_  : TimeColumn
+    - values_ : variant<monostate, LogicStore, RealStore, StringStore>
+    --
+    + append(t, value)
+    + times() : const TimeColumn&
+    + columns() : ColumnView
+    + slice(lo, hi) / byteSize()
+    --
+    «сериализация (формат 'WDB2'):»
+    + encodeBlock(block) : vector<byte>
+    + decodeBlock(raw)   : DecodedBlock
+    note right
+      На диске:
+      • метки времени — zigzag +
+        LEB128-дельты;
+      • bval-план пишется, только
+        если выставлен флаг
+        kFlagHasBval.
+    end note
+}
+
+DecodedBlock *-- TimeColumn
+DecodedBlock --> ColumnView : columns()
+
+class SignalIndex {
+    - streams_ : unordered_map<SignalId, SignalLocator>
+    - timeRange_ / timeScale_
+    --
+    + locate(id) : const SignalLocator*
+    + locator(id) : SignalLocator&
+    + addBlock(id, BlockRef)
+    --
+    + save(path)          «сайдкар *.wsfidx»
+    + {static} load(path) : SignalIndex
+}
+
+class SignalLocator <<data>> {
+    + blocks : vector<BlockRef>   «отсортированы по time.begin»
+    + blocksIn(range) : pair<size_t,size_t>   «бинарный поиск»
+    note right
+      Блоки одного потока НЕ
+      контигуальны во времени:
+      при потоковой записи
+      time.end = последнее
+      изменение + 1, поэтому
+      между блоками есть «дыры».
+      Поиск идёт по time.begin —
+      дыры допустимы.
+    end note
+}
+
+class BlockRef <<data>> {
+    + time : TimeRange
+    + offset : uint64_t
+    + storedSize : uint32_t
+    + rawSize    : uint32_t
+    + codec : Codec  {NONE|ZSTD|LZ4|ZLIB}
+}
+
+SignalIndex *-- "1..*" SignalLocator
+SignalLocator *-- "blocks[]" BlockRef
+
+LazyStorage *-- SignalIndex
+LazyStorage *-- BlockSource
+LazyStorage *-- "LazyStorage::BlockCache"
+LazyStorage --> DecodedBlock : decodeBlock()
+
+' ──────────────── База данных ────────────────
+class Database {
+    - hierarchy_ : Hierarchy
+    - storage_   : unique_ptr<Storage>
+    --
+    + timeRange() / timeScale()
+    + hierarchy() : const Hierarchy&
+    + storage()   : Storage&
+    --
+    «навигация:»
+    + root()           : Scope
+    + find(path)       : optional<Signal>
+    + findScope(path)  : optional<Scope>
+    --
+    «доступ к значениям (делегирует в storage):»
+    + valueAt(node, t)     : Value
+    + changes(node, range) : ValueCursor
+    + nextChange(node, t)  : TimeStamp
+    + prevChange(node, t)  : TimeStamp
+    --
+    «фабрики хэндлов:»
+    + signalHandle(node) : Signal
+    + scopeHandle(id)    : Scope
+}
+
+class SignalQuery <<не реализован>> {
+    - db_ : const Database*
+    --
+    + match(glob) : vector<Signal>
+    + leavesUnder(scope) : vector<Signal>
+    + where(pred) : vector<Signal>
+    + prefetch(signals, range)
+    note right
+      ОБЪЯВЛЕН, НО НЕ РЕАЛИЗОВАН:
+      signal_query.hpp есть,
+      парного .cpp нет, символов
+      в libwasafe.a тоже — вызов
+      даст ошибку компоновки.
+    end note
+}
+
+SignalQuery --> Database
+
+note as NOPEN
+  Открытия по пути у БД нет:
+  БД строится из Reader'а
+  пользователя через ingest()
+  (см. 05_io / 06_sequence_open).
+  Сайдкар не хранит иерархию,
+  поэтому готовый store нельзя
+  переоткрыть без повторного
+  разбора источника.
+end note
+
+Database *-- Storage
+Database --> ValueCursor : changes()
+
+Storage <|.. MemoryStorage
+Storage <|.. LazyStorage
+Storage --> Cursor : openCursor()
+
+@enduml

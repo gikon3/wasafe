@@ -1,0 +1,97 @@
+@startuml 07_signal_uniform
+title Единый интерфейс Signal — примеры для разных типов сигналов
+
+skinparam defaultFontName Consolas
+skinparam noteBackgroundColor #FFF9C4
+
+' Показываем, что к разным видам сигналов применяется ОДИН API
+
+package "Пример дизайна (SV)" as sv #ECEFF1 {
+  note as N_SV
+    **logic clk;**                  ← скаляр
+    **logic [31:0] addr;**          ← вектор
+    **logic [7:0] mem [0:3][0:1];** ← 2D массив
+    **typedef struct packed {**
+    **  logic [7:0] data;**
+    **  logic valid;**
+    **} pkt_t;**
+    **pkt_t req;**                  ← упакованная структура
+  end note
+}
+
+package "Одинаковый API Signal — clk (скаляр)" as ex1 #E8F5E9 {
+  note as N1
+    Signal clk = *db.find("top.clk");
+    clk.isLeaf()         → true
+    clk.width()           → 1
+    clk.valueAt(1000)    → Value{logic "1"}
+    clk.changes({0,5000}) → ValueCursor (побитовый)
+    clk.childCount()     → 0
+  end note
+}
+
+package "Одинаковый API Signal — addr (вектор)" as ex2 #E8F5E9 {
+  note as N2
+    Signal addr = *db.find("top.addr");
+    addr.isLeaf()         → true
+    addr.width()           → 32
+    addr.valueAt(1000)    → Value{logic "00000000000000001101..."}
+    addr.changes({0,5000}) → ValueCursor
+    addr.childCount()     → 0  // вектор — тоже лист
+  end note
+}
+
+package "Одинаковый API Signal — mem[2][1] (элемент 2D-массива)" as ex3 #E8F5E9 {
+  note as N3
+    Signal mem  = *db.find("top.mem");
+    mem.childCount()   → 4       // внешний [0:3]
+
+    Signal row  = mem[2];         // operator[] по ординалу
+    row.childCount()   → 2       // внутренний [0:1]
+
+    Signal cell = mem[2][1];      // или:  mem.child(2).child(1)
+    cell.isLeaf()      → true
+    cell.width()        → 8
+    cell.valueAt(1000) → Value{logic "01011010"}
+
+    // обход всей памяти — один и тот же range-for:
+    for (Signal row : mem.children())
+        for (Signal cell : row.children())
+            use(cell.valueAt(t));
+  end note
+}
+
+package "Одинаковый API Signal — req (packed struct)" as ex4 #E8F5E9 {
+  note as N4
+    Signal req = *db.find("top.req");
+    req.isComposite()   → true
+    req.isLeaf()        → false  // нет листового потока у самой структуры
+    req.childCount()    → 2
+
+    Signal data  = req.child("data");   // или req[0]
+    Signal valid = req.child("valid");  // или req[1]
+
+    // data и valid — BitSlice родительского потока req.
+    // Но к ним применяется тот же интерфейс:
+    data.width()         → 8
+    data.valueAt(1000)  → Value{logic "10110101"}
+    valid.valueAt(1000) → Value{logic "1"}
+
+    // Снимок всей структуры — автоматически агрегат:
+    req.valueAt(1000)   → Value{Aggregate[data_val, valid_val]}
+  end note
+}
+
+note as NKEY
+  **Ключевой вывод:**
+  Один и тот же набор методов:
+    child() / children() / operator[]
+    valueAt() / changes()
+    isLeaf() / isComposite()
+  — работает для скаляра, вектора,
+    элемента многомерного массива
+    и члена структуры на любом
+    уровне вложенности.
+end note
+
+@enduml

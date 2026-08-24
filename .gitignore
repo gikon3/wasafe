@@ -1,0 +1,21 @@
+# Окружение
+/.venv/
+
+# Сборка
+/build/
+/cmake-build-*/
+/out/
+CMakeUserPresets.json
+
+# Conan
+/conan/
+test_package/build/
+
+# IDE
+.vscode/
+.idea/
+*.user
+
+# Сайдкар-индексы временных диаграмм
+*.wdbidx
+*.wdbstore

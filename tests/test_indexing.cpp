@@ -1,0 +1,362 @@
+#include <gtest/gtest.h>
+
+#include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+#include "wasafe/config.hpp"
+#include "wasafe/io/builder.hpp"
+#include "wasafe/storage/database.hpp"
+#include "wasafe/storage/signal_index.hpp"
+
+using namespace WaSafe;
+
+namespace {
+
+/// Временный путь, удаляемый в деструкторе (вместе с сайдкаром store.wsfidx).
+struct TempPath {
+    std::filesystem::path path;
+
+    explicit TempPath(std::string_view name) : path(std::filesystem::temp_directory_path() / name) { cleanup(); }
+    TempPath(const TempPath&) = delete;
+    TempPath(TempPath&&) = delete;
+    ~TempPath() { cleanup(); }
+
+    void cleanup() const {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        std::filesystem::remove(std::filesystem::path(path) += ".wsfidx", ec);
+    }
+
+    TempPath& operator=(const TempPath&) = delete;
+    TempPath& operator=(TempPath&&) = delete;
+};
+
+struct LogicScratch {
+    LogicVector vec;
+    LogicScratch(std::uint32_t width, std::string_view bits) : vec(width) { vec.assignFromChars(bits); }
+    [[nodiscard]] ValueView view() const { return vec; }
+};
+
+}  // namespace
+
+// SignalIndex: save/load roundtrip
+TEST(Indexing, SaveLoadRoundtrip) {
+    TempPath const tmp{"wasafe_idx_roundtrip.wsfidx"};
+
+    SignalIndex idx;
+    idx.setTimeScale({.exponent = -9, .scale = 10});
+    idx.setTimeRange({0, 1000});
+    idx.addBlock(SignalId{0}, BlockRef{{0, 500}, 0, 128, 256, BlockRef::Codec::ZSTD});
+    idx.addBlock(SignalId{0}, BlockRef{{500, 1000}, 128, 64, 200, BlockRef::Codec::NONE});
+    idx.addBlock(SignalId{7}, BlockRef{{0, 1000}, 192, 300, 300, BlockRef::Codec::NONE});
+
+    idx.save(tmp.path);
+
+    auto loaded = SignalIndex::load(tmp.path);
+
+    EXPECT_EQ(loaded.timeRange(), (TimeRange{0, 1000}));
+    EXPECT_EQ(loaded.timeScale(), (TimeScale{.exponent = -9, .scale = 10}));
+    EXPECT_EQ(loaded.streamCount(), 2u);
+
+    const SignalLocator* l0 = loaded.locate(SignalId{0});
+    ASSERT_NE(l0, nullptr);
+    ASSERT_EQ(l0->blocks.size(), 2u);
+    EXPECT_EQ(l0->blocks[0].time, (TimeRange{0, 500}));
+    EXPECT_EQ(l0->blocks[0].storedSize, 128u);
+    EXPECT_EQ(l0->blocks[0].rawSize, 256u);
+    EXPECT_EQ(l0->blocks[0].codec, BlockRef::Codec::ZSTD);
+    EXPECT_EQ(l0->blocks[1].offset, 128u);
+
+    const SignalLocator* l7 = loaded.locate(SignalId{7});
+    ASSERT_NE(l7, nullptr);
+    EXPECT_EQ(l7->blocks.size(), 1u);
+    EXPECT_EQ(l7->blocks[0].time, (TimeRange{0, 1000}));
+
+    EXPECT_EQ(loaded.locate(SignalId{42}), nullptr);
+}
+
+// SignalIndex::load — повреждённый/несуществующий файл
+TEST(Indexing, LoadCorruptOrMissingFile) {
+    EXPECT_THROW((void)SignalIndex::load("/no/such/wasafe/index.wsfidx"), Exception);
+
+    TempPath const tmp{"wasafe_idx_garbage.bin"};
+    {
+        std::ofstream f(tmp.path, std::ios::binary);
+        constexpr std::string_view junk = "not an index";
+        f.write(junk.data(), static_cast<std::streamsize>(junk.size()));
+    }
+    EXPECT_THROW((void)SignalIndex::load(tmp.path), Exception);
+}
+
+// IndexingBuilder: end-to-end ленивое чтение из store
+TEST(Indexing, EndToEndLazyRead) {
+    TempPath const tmp{"wasafe_store_e2e.wsfstore"};
+
+    // Мелкие блоки (2 изменения) — заставит создать несколько блоков и
+    // проверить обход границ при ленивом чтении.
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
+    b->setTimeScale({.exponent = static_cast<int>(TimeUnit::PS), .scale = 1});
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId d = b->declareVar("data", makeVector(3, 0));
+    const SignalId r = b->declareVar("temp", makeReal());
+    b->endScope();
+    b->headerDone();
+
+    // data: 5 изменений -> 3 блока (2+2+1). temp: 3 изменения -> 2 блока.
+    const LogicScratch v0{4, "0000"};
+    const LogicScratch v1{4, "0001"};
+    const LogicScratch v2{4, "0010"};
+    const LogicScratch v3{4, "0100"};
+    const LogicScratch v4{4, "1000"};
+    b->setTime(0);
+    b->valueChange(d, v0.view());
+    b->valueChange(r, 0.5);
+    b->setTime(10);
+    b->valueChange(d, v1.view());
+    b->setTime(20);
+    b->valueChange(d, v2.view());
+    b->valueChange(r, 1.5);
+    b->setTime(30);
+    b->valueChange(d, v3.view());
+    b->setTime(40);
+    b->valueChange(d, v4.view());
+    b->valueChange(r, 2.5);
+    b->finish();
+
+    auto db = b->takeDatabase();
+
+    EXPECT_EQ(db.timeRange(), (TimeRange{0, 41}));
+    EXPECT_EQ(db.timeScale(), (TimeScale{.exponent = static_cast<int>(TimeUnit::PS), .scale = 1}));
+
+    const auto data = db.find("top.data");
+    ASSERT_TRUE(data);
+
+    // Точечный доступ через границы блоков (включая «удержание» значения).
+    EXPECT_EQ(data->valueAt(0).asLogic().toString(), "0000");
+    EXPECT_EQ(data->valueAt(5).asLogic().toString(), "0000");
+    EXPECT_EQ(data->valueAt(10).asLogic().toString(), "0001");
+    EXPECT_EQ(data->valueAt(25).asLogic().toString(), "0010");  // блок 1, удержание
+    EXPECT_EQ(data->valueAt(35).asLogic().toString(), "0100");  // блок 2 (carry между блоками)
+    EXPECT_EQ(data->valueAt(40).asLogic().toString(), "1000");
+    EXPECT_EQ(data->valueAt(99).asLogic().toString(), "1000");
+
+    // Курсор по диапазону через несколько блоков.
+    std::vector<TimeStamp> seen;
+    auto cur = data->changes({5, 35});  // 10,20,30
+    while (cur.next())
+        seen.push_back(cur->time);
+    EXPECT_EQ(seen, (std::vector<TimeStamp>{10, 20, 30}));
+
+    // Навигация по фронтам через границы блоков.
+    EXPECT_EQ(data->nextChange(0), 10);
+    EXPECT_EQ(data->nextChange(15), 20);
+    EXPECT_EQ(data->nextChange(40), kNoTime);
+    EXPECT_EQ(data->prevChange(35), 30);
+    EXPECT_EQ(data->prevChange(5), 0);
+
+    // Второй поток (real) тоже читается лениво.
+    EXPECT_DOUBLE_EQ(db.find("top.temp")->valueAt(25).asReal(), 1.5);
+    EXPECT_DOUBLE_EQ(db.find("top.temp")->valueAt(40).asReal(), 2.5);
+
+    // Сайдкар-индекс сохранён и согласован с тем, что построено в памяти.
+    auto sidecar = SignalIndex::load(std::filesystem::path(tmp.path) += ".wsfidx");
+    EXPECT_EQ(sidecar.timeRange(), (TimeRange{0, 41}));
+    ASSERT_TRUE(sidecar.locate(d));
+    EXPECT_EQ(sidecar.locate(d)->blocks.size(), 3u);  // 5 изменений / 2 на блок
+}
+
+// IndexingBuilder: packed-член на ленивом storage — курсор и фронты члена идут
+// по блокам потока-предка, включая переход через границу блока.
+TEST(Indexing, PackedMemberChangesLazy) {
+    TempPath const tmp{"wasafe_store_packed.wsfstore"};
+
+    // По 2 изменения на блок: 3 изменения потока req лягут в два блока.
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
+    b->beginScope("top", ScopeKind::MODULE);
+    Type const reqT = makeStruct(
+            {
+                    StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
+                    StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
+            },
+            /*packed=*/true);
+    const SignalId req = b->declareVar("req", reqT);
+    b->endScope();
+    b->headerDone();
+
+    const LogicScratch v0{9, "101001011"};  // addr=10100101, valid=1
+    const LogicScratch v1{9, "101001010"};  // addr тот же,   valid=0
+    const LogicScratch v2{9, "000000010"};  // addr=00000001, valid тот же (граница блока)
+    b->setTime(0);
+    b->valueChange(req, v0.view());
+    b->setTime(10);
+    b->valueChange(req, v1.view());
+    b->setTime(20);
+    b->valueChange(req, v2.view());
+    b->finish();
+
+    auto db = b->takeDatabase();
+
+    const auto collect = [](ValueCursor cur) {
+        std::vector<std::pair<TimeStamp, std::string>> out;
+        while (cur.next())
+            out.emplace_back(cur->time, cur->value.logic().toString());
+        return out;
+    };
+
+    const auto addr = db.find("top.req.addr");
+    const auto valid = db.find("top.req.valid");
+    ASSERT_TRUE(addr);
+    ASSERT_TRUE(valid);
+
+    using Rec = std::pair<TimeStamp, std::string>;
+    EXPECT_EQ(collect(addr->changes({0, 100})), (std::vector<Rec>{{0, "10100101"}, {20, "00000001"}}));
+    EXPECT_EQ(collect(valid->changes({0, 100})), (std::vector<Rec>{{0, "1"}, {10, "0"}}));
+    // Перенос значения в окно работает и когда окно начинается внутри блока.
+    EXPECT_EQ(collect(addr->changes({5, 100})), (std::vector<Rec>{{20, "00000001"}}));
+
+    EXPECT_EQ(addr->nextChange(0), 20);  // через границу блока
+    EXPECT_EQ(addr->nextChange(20), kNoTime);
+    EXPECT_EQ(addr->prevChange(100), 20);
+    EXPECT_EQ(addr->prevChange(20), 0);
+    EXPECT_EQ(valid->nextChange(0), 10);
+    EXPECT_EQ(valid->nextChange(10), kNoTime);
+    EXPECT_EQ(valid->prevChange(100), 10);
+}
+
+// IndexingBuilder: запись идёт ПО ХОДУ разбора, а не в finish()
+TEST(Indexing, StreamsToDiskBeforeFinish) {
+    TempPath const tmp{"wasafe_store_streaming.wsfstore"};
+
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 8});
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId w = b->declareVar("bus", makeVector(63, 0));
+    b->endScope();
+    b->headerDone();
+
+    // Объём заведомо больше буфера потока вывода, поэтому байты обязаны дойти
+    // до файла ещё до finish(), если запись действительно потоковая.
+    constexpr int kN = 20000;
+    const LogicScratch a{64, "0000000000000000000000000000000000000000000000000000000000001010"};
+    const LogicScratch c{64, "0000000000000000000000000000000000000000000000000000000001011100"};
+    for (TimeStamp i = 0; i < kN; ++i) {
+        b->setTime(i * 10);
+        b->valueChange(w, (i % 2 == 0 ? a : c).view());
+    }
+
+    std::error_code ec;
+    const auto sizeBeforeFinish = std::filesystem::file_size(tmp.path, ec);
+    ASSERT_FALSE(ec);
+    EXPECT_GT(sizeBeforeFinish, 0u) << "store пуст до finish() — запись не потоковая";
+
+    b->finish();
+    auto db = b->takeDatabase();
+
+    // И результат при этом корректен.
+    const auto bus = db.find("top.bus");
+    ASSERT_TRUE(bus);
+    EXPECT_EQ(bus->valueAt(0).asLogic().toUint64(), 0xAu);
+    EXPECT_EQ(bus->valueAt(10).asLogic().toUint64(), 0x5Cu);
+    EXPECT_EQ(bus->valueAt(static_cast<TimeStamp>(kN - 1) * 10).asLogic().toUint64(), (kN % 2 == 0 ? 0x5Cu : 0xAu));
+    EXPECT_EQ(db.timeRange(), (TimeRange{0, static_cast<TimeStamp>(kN - 1) * 10 + 1}));
+}
+
+// IndexingBuilder: потолок буфера дробит блоки, не ломая чтение
+TEST(Indexing, BufferBudgetSplitsBlocks) {
+    TempPath const tmp{"wasafe_store_budget.wsfstore"};
+
+    // blockChanges заведомо недостижим — блоки могут появиться ТОЛЬКО из-за
+    // досрочного сброса по нехватке памяти.
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 1'000'000, .bufferBytes = 8192});
+    b->beginScope("top", ScopeKind::MODULE);
+    std::vector<SignalId> ids;
+    ids.reserve(4);
+    for (int k = 0; k < 4; ++k)
+        ids.push_back(b->declareVar("bus" + std::to_string(k), makeVector(63, 0)));
+    b->endScope();
+    b->headerDone();
+
+    constexpr int kSteps = 2000;
+    const LogicScratch a{64, "0000000000000000000000000000000000000000000000000000000000001010"};
+    const LogicScratch c{64, "0000000000000000000000000000000000000000000000000000000001011100"};
+    for (TimeStamp i = 0; i < kSteps; ++i) {
+        b->setTime(i * 10);
+        for (const SignalId id : ids)
+            b->valueChange(id, (i % 2 == 0 ? a : c).view());
+    }
+    b->finish();
+    auto db = b->takeDatabase();
+
+    // Досрочные сбросы действительно произошли.
+    auto sidecar = SignalIndex::load(std::filesystem::path(tmp.path) += ".wsfidx");
+    const SignalLocator* loc = sidecar.locate(ids.front());
+    ASSERT_NE(loc, nullptr);
+    EXPECT_GT(loc->blocks.size(), 1u) << "бюджет не сработал: поток уместился в один блок";
+
+    // Блоки одного потока упорядочены и не пересекаются, между ними — «дыры».
+    for (std::size_t i = 1; i < loc->blocks.size(); ++i)
+        EXPECT_LE(loc->blocks[i - 1].time.end, loc->blocks[i].time.begin);
+
+    // Чтение через все границы блоков корректно: точечный доступ, удержание
+    // значения внутри «дыры» и полный обход курсором.
+    const auto bus0 = db.find("top.bus0");
+    ASSERT_TRUE(bus0);
+    EXPECT_EQ(bus0->valueAt(0).asLogic().toUint64(), 0xAu);
+    EXPECT_EQ(bus0->valueAt(5).asLogic().toUint64(), 0xAu);  // удержание между изменениями
+    EXPECT_EQ(bus0->valueAt(10).asLogic().toUint64(), 0x5Cu);
+    EXPECT_EQ(bus0->valueAt(static_cast<TimeStamp>(kSteps - 1) * 10).asLogic().toUint64(),
+            (kSteps % 2 == 0 ? 0x5Cu : 0xAu));
+
+    std::size_t seen = 0;
+    auto cur = bus0->changes(kWholeTime);
+    while (cur.next())
+        ++seen;
+    EXPECT_EQ(seen, static_cast<std::size_t>(kSteps));
+}
+
+// IndexingBuilder: zstd-сжатие большого блока и распаковка из файла
+TEST(Indexing, ZstdCompressLargeBlock) {
+    if (!kHasZstd)
+        GTEST_SKIP() << "библиотека собрана без zstd (WASAFE_WITH_ZSTD=OFF)";
+
+    TempPath const tmp{"wasafe_store_zstd.wsfstore"};
+
+    // Один крупный блок из хорошо сжимаемых данных: zstd должен реально сжать,
+    // и чтение пойдёт через ZSTD_decompress (codec == Zstd в индексе).
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 10000});
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId w = b->declareVar("bus", makeVector(63, 0));
+    b->endScope();
+    b->headerDone();
+
+    constexpr int kN = 2000;
+    const LogicScratch a{64, "0000000000000000000000000000000000000000000000000000000000001010"};  // 0xA
+    const LogicScratch c{64, "0000000000000000000000000000000000000000000000000000000001011100"};  // 0x5C
+    for (TimeStamp i = 0; i < kN; ++i) {
+        b->setTime(i * 10);
+        b->valueChange(w, (i % 2 == 0 ? a : c).view());
+    }
+    b->finish();
+
+    auto db = b->takeDatabase();
+
+    auto sidecar = SignalIndex::load(std::filesystem::path(tmp.path) += ".wsfidx");
+    const SignalLocator* loc = sidecar.locate(w);
+    ASSERT_NE(loc, nullptr);
+    ASSERT_EQ(loc->blocks.size(), 1u);
+    EXPECT_EQ(loc->blocks[0].codec, BlockRef::Codec::ZSTD);        // сжатие сработало
+    EXPECT_LT(loc->blocks[0].storedSize, loc->blocks[0].rawSize);  // и реально уменьшило
+
+    // Чтение значений идёт через распаковку zstd из файла.
+    const auto bus = db.find("top.bus");
+    ASSERT_TRUE(bus);
+    EXPECT_EQ(bus->valueAt(0).asLogic().toUint64(), 0xAu);
+    EXPECT_EQ(bus->valueAt(10).asLogic().toUint64(), 0x5Cu);
+    EXPECT_EQ(bus->valueAt(static_cast<TimeStamp>(kN - 1) * 10).asLogic().toUint64(),
+            (kN % 2 == 0 ? 0x5Cu : 0xAu));  // последнее изменение
+}
