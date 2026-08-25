@@ -47,7 +47,7 @@ void put(std::vector<std::byte>& out, const T& v) {
 
 class Reader {
 public:
-    explicit Reader(std::span<const std::byte> data) : data_(data) {}
+    explicit Reader(std::span<const std::byte> data) : data_{data} {}
     template <class T>
     [[nodiscard]] bool read(T& out) noexcept {
         if (pos_ + sizeof(T) > data_.size())
@@ -87,7 +87,7 @@ void SignalIndex::save(const std::filesystem::path& path) const {
         }
     }
 
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out{path, std::ios::binary | std::ios::trunc};
     if (!out)
         throw Exception{"cannot open index for write: " + path.string()};
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — ostream::write требует const char*
@@ -108,7 +108,7 @@ SignalIndex SignalIndex::load(const std::filesystem::path& path) {
     if (in.gcount() != static_cast<std::streamsize>(size))
         throw Exception{"index: short read"};
 
-    Reader r(buf);
+    Reader r{buf};
     std::uint32_t magic = 0;
     std::uint32_t version = 0;
     if (!r.read(magic) || magic != kIndexMagic)

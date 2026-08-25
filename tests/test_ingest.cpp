@@ -17,7 +17,7 @@ namespace {
 struct TempStore {
     std::filesystem::path path;
 
-    explicit TempStore(std::string_view name) : path(std::filesystem::temp_directory_path() / name) { cleanup(); }
+    explicit TempStore(std::string_view name) : path{std::filesystem::temp_directory_path() / name} { cleanup(); }
     TempStore(const TempStore&) = delete;
     TempStore(TempStore&&) = delete;
     ~TempStore() { cleanup(); }

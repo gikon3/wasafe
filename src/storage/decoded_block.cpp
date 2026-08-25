@@ -222,7 +222,7 @@ void putN(std::vector<std::byte>& out, const T* data, std::size_t n) {
 /// Курсор чтения с проверкой границ.
 class Reader {
 public:
-    explicit Reader(std::span<const std::byte> data) : data_(data) {}
+    explicit Reader(std::span<const std::byte> data) : data_{data} {}
 
     template <class T>
     [[nodiscard]] bool read(T& out) noexcept {
@@ -308,7 +308,7 @@ std::vector<std::byte> encodeBlock(const DecodedBlock& block) {
 }
 
 DecodedBlock decodeBlock(std::span<const std::byte> raw) {
-    Reader r(raw);
+    Reader r{raw};
     Header h{};
     if (!r.read(h))
         throw Exception{"block: truncated header"};

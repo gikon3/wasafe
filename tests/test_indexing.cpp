@@ -22,7 +22,7 @@ namespace {
 struct TempPath {
     std::filesystem::path path;
 
-    explicit TempPath(std::string_view name) : path(std::filesystem::temp_directory_path() / name) { cleanup(); }
+    explicit TempPath(std::string_view name) : path{std::filesystem::temp_directory_path() / name} { cleanup(); }
     TempPath(const TempPath&) = delete;
     TempPath(TempPath&&) = delete;
     ~TempPath() { cleanup(); }
@@ -39,7 +39,7 @@ struct TempPath {
 
 struct LogicScratch {
     LogicVector vec;
-    LogicScratch(std::uint32_t width, std::string_view bits) : vec(width) { vec.assignFromChars(bits); }
+    LogicScratch(std::uint32_t width, std::string_view bits) : vec{width} { vec.assignFromChars(bits); }
     [[nodiscard]] ValueView view() const { return vec; }
 };
 

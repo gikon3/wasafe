@@ -66,7 +66,7 @@ public:
     }
 
 protected:
-    TypeDescriptor(TypeKind k, bool fourState) : kind_(k), fourState_(fourState) {}
+    TypeDescriptor(TypeKind k, bool fourState) : kind_{k}, fourState_{fourState} {}
     TypeDescriptor(const TypeDescriptor&) = default;
     TypeDescriptor(TypeDescriptor&&) = default;
 
@@ -83,7 +83,7 @@ private:
 // ---------------------------------------------------------------------------
 class WASAFE_API ScalarType final : public TypeDescriptor {
 public:
-    explicit ScalarType(bool fourState = true) : TypeDescriptor(TypeKind::SCALAR, fourState) {}
+    explicit ScalarType(bool fourState = true) : TypeDescriptor{TypeKind::SCALAR, fourState} {}
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override { return 1; }
 };
 
@@ -93,7 +93,7 @@ public:
 class WASAFE_API VectorType final : public TypeDescriptor {
 public:
     VectorType(std::int32_t msb, std::int32_t lsb, bool isSigned = false, bool fourState = true) :
-            TypeDescriptor(TypeKind::VECTOR, fourState), msb_(msb), lsb_(lsb), signed_(isSigned) {}
+            TypeDescriptor{TypeKind::VECTOR, fourState}, msb_{msb}, lsb_{lsb}, signed_{isSigned} {}
 
     [[nodiscard]] std::int32_t msb() const noexcept { return msb_; }
     [[nodiscard]] std::int32_t lsb() const noexcept { return lsb_; }
@@ -114,8 +114,8 @@ private:
 class WASAFE_API ArrayType final : public TypeDescriptor {
 public:
     ArrayType(Type element, std::int32_t indexLeft, std::int32_t indexRight, bool packed = false) :
-            TypeDescriptor(TypeKind::ARRAY, element ? element->fourState() : true), element_(std::move(element)),
-            left_(indexLeft), right_(indexRight), packed_(packed) {}
+            TypeDescriptor{TypeKind::ARRAY, element ? element->fourState() : true}, element_{std::move(element)},
+            left_{indexLeft}, right_{indexRight}, packed_{packed} {}
 
     [[nodiscard]] const Type& elementType() const noexcept { return element_; }
     [[nodiscard]] std::int32_t indexLeft() const noexcept { return left_; }
@@ -156,14 +156,14 @@ struct StructMember {
 class WASAFE_API StructType final : public TypeDescriptor {
 public:
     StructType(std::vector<StructMember> members, bool packed, bool isUnion = false) :
-            TypeDescriptor(isUnion ? TypeKind::UNION : TypeKind::STRUCT, computeFourState(members)),
-            members_(std::move(members)), packed_(packed) {}
+            TypeDescriptor{isUnion ? TypeKind::UNION : TypeKind::STRUCT, computeFourState(members)},
+            members_{std::move(members)}, packed_{packed} {}
 
     [[nodiscard]] std::span<const StructMember> members() const noexcept { return members_; }
     [[nodiscard]] bool packed() const noexcept { return packed_; }
     [[nodiscard]] std::size_t elementCount() const noexcept override { return members_.size(); }
 
-    /// Поиск члена по имени; индекс или SIZE_MAX.
+    /// Поиск члена по имени; индекс или std::numeric_limits<std::size_t>::max().
     [[nodiscard]] std::size_t indexOf(std::string_view memberName) const noexcept;
 
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override;
@@ -185,8 +185,8 @@ struct EnumEntry {
 class WASAFE_API EnumType final : public TypeDescriptor {
 public:
     EnumType(Type base, std::vector<EnumEntry> entries) :
-            TypeDescriptor(TypeKind::ENUM, base ? base->fourState() : true), base_(std::move(base)),
-            entries_(std::move(entries)) {}
+            TypeDescriptor{TypeKind::ENUM, base ? base->fourState() : true}, base_{std::move(base)},
+            entries_{std::move(entries)} {}
 
     [[nodiscard]] const Type& base() const noexcept { return base_; }
     [[nodiscard]] std::span<const EnumEntry> entries() const noexcept { return entries_; }
@@ -204,7 +204,7 @@ private:
 // ---------------------------------------------------------------------------
 class WASAFE_API RealType final : public TypeDescriptor {
 public:
-    explicit RealType(bool shortreal = false) : TypeDescriptor(TypeKind::REAL, false), short_(shortreal) {}
+    explicit RealType(bool shortreal = false) : TypeDescriptor{TypeKind::REAL, false}, short_{shortreal} {}
     [[nodiscard]] bool isShortreal() const noexcept { return short_; }
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override { return 0; }
 
@@ -214,7 +214,7 @@ private:
 
 class WASAFE_API StringType final : public TypeDescriptor {
 public:
-    explicit StringType() : TypeDescriptor(TypeKind::STRING, false) {}
+    explicit StringType() : TypeDescriptor{TypeKind::STRING, false} {}
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override { return 0; }
 };
 

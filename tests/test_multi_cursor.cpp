@@ -22,7 +22,7 @@ namespace {
 /// его невладеющий вид.
 struct LogicScratch {
     LogicVector vec;
-    LogicScratch(std::uint32_t width, std::string_view bits) : vec(width) { vec.assignFromChars(bits); }
+    LogicScratch(std::uint32_t width, std::string_view bits) : vec{width} { vec.assignFromChars(bits); }
     [[nodiscard]] ValueView view() const { return vec; }
 };
 

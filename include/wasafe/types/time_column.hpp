@@ -59,7 +59,7 @@ private:
 
     /// Разность t - base_ в беззнаковой арифметике. Вызывать только при t >= base_:
     /// прямое вычитание в int64 переполнилось бы на краях диапазона (kWholeTime
-    /// приносит сюда INT64_MIN/INT64_MAX).
+    /// приносит сюда min/max TimeStamp).
     [[nodiscard]] std::uint64_t offsetFromBase(TimeStamp t) const noexcept {
         return static_cast<std::uint64_t>(t) - static_cast<std::uint64_t>(base_);
     }

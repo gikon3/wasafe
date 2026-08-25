@@ -52,7 +52,7 @@ protected:
 class WASAFE_API ValueCursor {
 public:
     ValueCursor() = default;
-    explicit ValueCursor(std::unique_ptr<Cursor> impl) : impl_(std::move(impl)) {}
+    explicit ValueCursor(std::unique_ptr<Cursor> impl) : impl_{std::move(impl)} {}
     ValueCursor(const ValueCursor&) = delete;
     ValueCursor(ValueCursor&&) = default;
     virtual ~ValueCursor() = default;

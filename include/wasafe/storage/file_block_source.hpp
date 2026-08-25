@@ -20,7 +20,7 @@ public:
     [[nodiscard]] std::vector<std::byte> readBlock(const BlockRef& block) const override;
 
 private:
-    explicit FileBlockSource(std::ifstream file) : file_(std::move(file)) {}
+    explicit FileBlockSource(std::ifstream file) : file_{std::move(file)} {}
     mutable std::ifstream file_;  ///< mutable: чтение по смещению в const-методе
 };
 
