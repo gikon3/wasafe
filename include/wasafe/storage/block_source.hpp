@@ -1,13 +1,14 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <vector>
 
+#include "wasafe/core/ids.hpp"
 #include "wasafe/core/time.hpp"
 #include "wasafe/export.hpp"
 
 namespace WaSafe {
+
+class DecodedBlock;
 
 /// Дескриптор блока значений в файле/нормализованном хранилище.
 /// Блок покрывает диапазон времени и хранит изменения одного или нескольких
@@ -20,16 +21,20 @@ struct BlockRef {
     enum class Codec : std::uint8_t { NONE, ZSTD, LZ4, ZLIB } codec = Codec::NONE;
 };
 
-/// Источник сырых блоков. Абстрагирует «откуда читать байты»: файл VCD/FST,
-/// нормализованный *.wsfstore, удалённый объект и т.п. Реализация отвечает за
-/// чтение по смещению и распаковку согласно codec блока.
+/// Источник блоков ленивого хранилища: абстрагирует «откуда берётся блок».
+/// Реализации — нормализованный *.wsfstore, буфер в ОЗУ, файл чужого формата со
+/// своим блочным устройством. LazyStorage знает только этот контракт и о том,
+/// как блок уложен на носителе, не осведомлён.
 class WASAFE_API BlockSource {
 public:
     virtual ~BlockSource() = default;
 
-    /// Прочитать и распаковать блок. Возврат — распакованные байты длиной
-    /// block.raw_size. Может бросать/возвращать ошибку через исключение домена.
-    [[nodiscard]] virtual std::vector<std::byte> readBlock(const BlockRef& block) const = 0;
+    /// Блок потока id, описанный ссылкой ref.
+    ///
+    /// id — идентичность потока: по паре (id, ref.offset) источник находит у
+    /// себя контекст блока любого размера. Она нужна форматам, где один чанк
+    /// несёт изменения нескольких потоков и offset у их блоков общий.
+    [[nodiscard]] virtual DecodedBlock decode(SignalId id, const BlockRef& ref) const = 0;
 
 protected:
     BlockSource() = default;

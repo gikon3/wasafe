@@ -6,6 +6,7 @@
 
 #include "wasafe/export.hpp"
 #include "wasafe/storage/block_source.hpp"
+#include "wasafe/storage/raw_block_source.hpp"
 
 namespace WaSafe {
 
@@ -14,7 +15,7 @@ namespace WaSafe {
 /// BlockRef::codec. Симметричен FileBlockSource: разница лишь в том, откуда
 /// берутся байты (поиск в словаре против seek + read).
 /// Удобен для тестов и для сборки ленивого хранилища без обращения к диску.
-class WASAFE_API MemoryBlockSource final : public BlockSource {
+class WASAFE_API MemoryBlockSource final : public RawBlockSource {
 public:
     /// Зарегистрировать stored-байты блока по его смещению: сжатые, если
     /// BlockRef этого блока объявляет кодек, иначе — как есть.

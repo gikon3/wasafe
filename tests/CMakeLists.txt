@@ -13,6 +13,7 @@ add_executable(wasafe_tests
     test_time_column.cpp
     test_hierarchy.cpp
     test_lazy_backend.cpp
+    test_foreign_source.cpp
     test_multi_cursor.cpp
     test_memory.cpp
     test_indexing.cpp
