@@ -2,9 +2,9 @@
 
 > Документ для вставки в новый чат как контекст. Описывает цель, архитектуру,
 > принятые решения, текущий статус и открытые вопросы. Код **собирается и проходит
-> 51/51 тестов** (GoogleTest); конвейер Reader → нормализованный store → ленивый/
+> 73/73 тестов** (GoogleTest); конвейер Reader → нормализованный store → ленивый/
 > in-memory доступ работает end-to-end. Источник истины по «что не доделано» —
-> комментарии `TODO(impl)` в коде. Последнее обновление: 2026-08-15.
+> комментарии `TODO(impl)` в коде. Последнее обновление: 2026-08-26.
 >
 > ⚠️ **Изменение границ проекта (2026-08-05)**: чтение форматов вынесено ИЗ этого
 > репозитория. Реестра форматов и `Database::open(path)` больше нет; парсеры (VCD,
@@ -74,7 +74,7 @@ include/wasafe/
   model/     hierarchy.hpp  scope.hpp  signal.hpp
   storage/   storage.hpp  database.hpp  signal_index.hpp  signal_query.hpp
              memory_storage.hpp  lazy_storage.hpp  value_cursor.hpp
-             decoded_block.hpp  block_source.hpp
+             decoded_block.hpp  block_source.hpp  raw_block_source.hpp
              file_block_source.hpp  memory_block_source.hpp
              (внутр.) src/storage/merge_cursor.hpp — слияние курсоров на куче
   io/        builder.hpp  reader.hpp  writer.hpp  ingest.hpp
@@ -231,9 +231,18 @@ Database db = ingest(reader, *sink);               // read -> finish -> takeData
      блока, оно переносится из предыдущего блока (поэтому пункт 2 обязателен —
      `valueAt` делает максимум **один** lookback в предыдущий блок).
 
-`storage/block_source.hpp`: `BlockSource::readBlock(BlockRef) → распакованные байты`.
-`FileBlockSource` (zstd-распаковка; lz4/zlib — TODO), `MemoryBlockSource` (для тестов).
-`BlockRef`: `{time, offset, storedSize, rawSize, codec}`.
+`storage/block_source.hpp`: `BlockSource::decode(SignalId, BlockRef) → DecodedBlock` —
+единственный метод контракта. Возврат сразу декодированного блока даёт формату со
+СВОИМ блочным устройством (FST) читать исходный файл на месте, без круга через нашу
+сериализацию; `SignalId` — идентичность потока, нужная там, где один чанк несёт
+изменения нескольких потоков.
+`storage/raw_block_source.hpp`: `RawBlockSource` — слой для источников, хранящих блоки
+в НАШЕЙ сериализации: реализует `decode` через `readBlock(BlockRef) → распакованные
+байты`. Наследники — `FileBlockSource` (zstd-распаковка; lz4/zlib — TODO) и
+`MemoryBlockSource` (для тестов и store в ОЗУ).
+`BlockRef`: `{time, offset, cookie, storedSize, rawSize, codec}`, где `cookie` — 64 бита,
+которые ядро НЕ интерпретирует: доадресация блока внутри чанка у чужих форматов.
+Ключ LRU-кэша — тройка `(SignalId, offset, cookie)`.
 
 **Соблюдается `IndexingBuilder`** (`src/io/indexing_builder.cpp`), и запись
 **потоковая**: каждый поток накапливает не более одного блока, который сжимается
@@ -261,7 +270,7 @@ ingestion оставляет частичный файл.
 
 ## 6. Текущий статус
 
-### ✅ Реализовано (рабочие тела + тесты, 51/51 проходят)
+### ✅ Реализовано (рабочие тела + тесты, 73/73 проходят)
 
 - `core/`: время/диапазоны/масштаб, `Exception`, строгие id, `StringMap`.
 - `types/`: 4-значная логика, `LogicVector`/`LogicVectorView` (упаковка, toString, toUint64,
@@ -271,7 +280,8 @@ ingestion оставляет частичный файл.
   по `.`/`[i]`, спуск по scope→signal→member, обратимость `pathOf`↔`findSignal`);
   хэндлы `Signal`/`Scope`.
 - `storage/` **ленивый backend — полностью**: формат блока, источники
-  (`File`/`MemoryBlockSource`), LRU-кэш, `valueAt` (+ перенос между блоками),
+  (`BlockSource`/`RawBlockSource`, поверх них `File`/`MemoryBlockSource`), LRU-кэш
+  с ключом `(SignalId, offset, cookie)`, `valueAt` (+ перенос между блоками),
   потоковый `openCursor` через границы, `nextChange`/`prevChange`, `prefetch`/`release`.
 - `storage/` **in-memory путь end-to-end**: `MemoryStorage` (поколоночное хранение,
   `append`/`finalize`/`valueAt`/курсор/`next`/`prev`); `Database::valueAt`
@@ -279,7 +289,7 @@ ingestion оставляет частичный файл.
   `ValueView`→`Value`); `MergeCursor` для композитного `changes` + `next/prev` как
   min/max по детям.
 - `storage/` **ленивый путь из файла end-to-end**: `SignalIndex::save/load` (бинарный
-  сайдкар `*.wsfidx`, magic `'WIX1'`, версия 1); `IndexingBuilder` — **потоковая**
+  сайдкар `*.wsfidx`, magic `'WIX1'`, версия 2); `IndexingBuilder` — **потоковая**
   запись блоков с потолком памяти (`IndexingOptions{blockChanges, bufferBytes}`,
   см. раздел 5); его `takeDatabase` открывает store через
   `FileBlockSource`+`LazyStorage`.
@@ -353,9 +363,14 @@ ingestion оставляет частичный файл.
   досрочно; кодек zstd с откатом на `NONE`. Оба параметра — в `IndexingOptions`,
   передаваемой в `makeIndexingBuilder`. Можно вернуться к нарезке по
   времени/объёму, если понадобится.
-5. **Ленивое открытие форматов**: VCD сейчас открывается через полный проход
-  `IndexingBuilder` (пишет нормализованный store + сайдкар). FST блочный по времени —
-  стоит отображать его нативную геометрию напрямую, без перекодирования. (для FST открыт)
+5. ~~**Ленивое открытие форматов**~~ → **КРЮЧКИ В ЯДРЕ ЕСТЬ**: `BlockSource::decode`
+  отдаёт `DecodedBlock` напрямую, `SignalId` и `BlockRef::cookie` позволяют адресовать
+  блок внутри чужого чанка, а `Database` собирается публичным конструктором из
+  `ingestHeader` + своего `Storage` — то есть FST читается на месте, без нормализации
+  в `*.wsfstore`. Путь описан в `docs/writing_a_reader.md`, проверен
+  `tests/test_foreign_source.cpp`. Остаётся сам FST-reader — он во внешнем проекте.
+  Для VCD перегруппировка time-major → signal-major неизбежна: см. разбор в
+  `docs/ideas_from_prototypes.md` §3.
 6. **Многопоточность**: `FileBlockSource` не потокобезопасен (`mutable ifstream`).
   Нужен ли конкурентный доступ к одной БД? (ещё открыт)
 7. **Поиск по имени**: точный путь реализован; glob (`SignalQuery::match`) — объём
