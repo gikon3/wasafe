@@ -29,13 +29,15 @@ public:
     using Changes = std::vector<std::pair<TimeStamp, std::string>>;
 
 public:
-    void put(SignalId id, std::uint64_t offset, Changes changes) { chunks_[{id, offset}] = std::move(changes); }
+    void put(SignalId id, std::uint64_t offset, std::uint64_t cookie, Changes changes) {
+        chunks_[{id, offset, cookie}] = std::move(changes);
+    }
 
     [[nodiscard]] DecodedBlock decode(SignalId id, const BlockRef& ref) const override {
         ++decodeCalls_;
-        // Контекст блока источник держит у себя: пара (id, offset) — его ключ.
-        // Промах здесь означал бы, что decode получил не тот SignalId.
-        const auto it = chunks_.find({id, ref.offset});
+        // Контекст блока источник держит у себя, ключуя (id, offset, cookie).
+        // Промах здесь означал бы, что decode получил не тот блок.
+        const auto it = chunks_.find({id, ref.offset, ref.cookie});
         if (it == chunks_.end())
             throw std::logic_error{"ForeignSource: нет данных для (id, offset)"};
 
@@ -52,7 +54,7 @@ public:
 
 private:
     mutable int decodeCalls_ = 0;  ///< mutable: decode() — const
-    std::map<std::pair<SignalId, std::uint64_t>, Changes> chunks_;
+    std::map<std::tuple<SignalId, std::uint64_t, std::uint64_t>, Changes> chunks_;
 };
 
 /// Ленивое хранилище поверх одного чанка с двумя потоками плюс наблюдатель за
@@ -64,8 +66,8 @@ struct Backend {
 
 Backend makeBackend(SignalId a, SignalId b) {
     auto src = std::make_unique<ForeignSource>();
-    src->put(a, kChunkOffset, {{0, "0001"}, {10, "0010"}});
-    src->put(b, kChunkOffset, {{0, "1111"}, {10, "1100"}});
+    src->put(a, kChunkOffset, /*cookie*/ 0, {{0, "0001"}, {10, "0010"}});
+    src->put(b, kChunkOffset, /*cookie*/ 0, {{0, "1111"}, {10, "1100"}});
     const ForeignSource* observer = src.get();
 
     SignalIndex idx;
@@ -75,6 +77,23 @@ Backend makeBackend(SignalId a, SignalId b) {
     const BlockRef ref{.time = {0, 11}, .offset = kChunkOffset};
     idx.addBlock(a, ref);
     idx.addBlock(b, ref);  // ТО ЖЕ смещение — блок другого потока в том же чанке
+
+    return Backend{LazyStorage{std::move(idx), std::move(src)}, observer};
+}
+
+/// Хранилище, где ОДИН поток держит в чанке два блока: смещение у них общее,
+/// различает их только cookie.
+Backend makeCookieBackend(SignalId a) {
+    auto src = std::make_unique<ForeignSource>();
+    src->put(a, kChunkOffset, /*cookie*/ 1, {{0, "0001"}, {10, "0010"}});
+    src->put(a, kChunkOffset, /*cookie*/ 2, {{20, "0100"}, {30, "1000"}});
+    const ForeignSource* observer = src.get();
+
+    SignalIndex idx;
+    idx.setTimeScale({.exponent = -12, .scale = 1});
+    idx.setTimeRange({0, 31});
+    idx.addBlock(a, BlockRef{.time = {0, 11}, .offset = kChunkOffset, .cookie = 1});
+    idx.addBlock(a, BlockRef{.time = {20, 31}, .offset = kChunkOffset, .cookie = 2});
 
     return Backend{LazyStorage{std::move(idx), std::move(src)}, observer};
 }
@@ -157,4 +176,16 @@ TEST(ForeignSource, MergedCursorTagsSource) {
     EXPECT_EQ(got[1], std::make_tuple(TimeStamp{0}, std::size_t{1}, std::string{"1111"}));
     EXPECT_EQ(got[2], std::make_tuple(TimeStamp{10}, std::size_t{0}, std::string{"0010"}));
     EXPECT_EQ(got[3], std::make_tuple(TimeStamp{10}, std::size_t{1}, std::string{"1100"}));
+}
+
+// Второй механизм ключа: два блока ОДНОГО потока по общему смещению.
+TEST(ForeignSource, CookieSeparatesBlocksOfOneStream) {
+    const SignalId a{0};
+    auto be = makeCookieBackend(a);
+
+    EXPECT_EQ(logicStr(be.storage.valueAt(a, 5)), "0001");
+    EXPECT_EQ(logicStr(be.storage.valueAt(a, 15)), "0010");
+    EXPECT_EQ(logicStr(be.storage.valueAt(a, 25)), "0100");
+    EXPECT_EQ(logicStr(be.storage.valueAt(a, 35)), "1000");
+    EXPECT_EQ(be.source->decodeCalls(), 2);  // каждый блок распакован ровно раз
 }

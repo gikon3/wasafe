@@ -88,7 +88,12 @@ void IndexingBuilder::flushStream(std::uint32_t sid) {
     const auto rawSize = static_cast<std::uint32_t>(raw.size());
     auto [stored, codec] = compressBlock(std::move(raw));
 
-    index_.addBlock(SignalId{sid}, BlockRef{span, offset_, static_cast<std::uint32_t>(stored.size()), rawSize, codec});
+    index_.addBlock(SignalId{sid},
+            BlockRef{.time = span,
+                    .offset = offset_,
+                    .storedSize = static_cast<std::uint32_t>(stored.size()),
+                    .rawSize = rawSize,
+                    .codec = codec});
 
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — ostream::write требует const char*
     out_.write(reinterpret_cast<const char*>(stored.data()), static_cast<std::streamsize>(stored.size()));

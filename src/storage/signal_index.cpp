@@ -30,13 +30,13 @@ void SignalIndex::addBlock(SignalId id, BlockRef block) {
 }
 
 // ---------------------------------------------------------------------------
-// Сериализация сайдкара (*.wsfidx). Хостовый порядок байт, версия 1
+// Сериализация сайдкара (*.wsfidx). Хостовый порядок байт, версия 2
 // (как и формат блока; TODO: переносимый little-endian).
 // ---------------------------------------------------------------------------
 namespace {
 
 constexpr std::uint32_t kIndexMagic = 0x31584957u;  // 'WIX1'
-constexpr std::uint32_t kIndexVersion = 1u;
+constexpr std::uint32_t kIndexVersion = 2u;
 
 template <class T>
 void put(std::vector<std::byte>& out, const T& v) {
@@ -81,6 +81,7 @@ void SignalIndex::save(const std::filesystem::path& path) const {
             put(buf, b.time.begin);
             put(buf, b.time.end);
             put(buf, b.offset);
+            put(buf, b.cookie);
             put(buf, b.storedSize);
             put(buf, b.rawSize);
             put(buf, static_cast<std::uint8_t>(b.codec));
@@ -138,8 +139,8 @@ SignalIndex SignalIndex::load(const std::filesystem::path& path) {
         for (std::uint32_t b = 0; b < blockCount; ++b) {
             BlockRef ref{};
             std::uint8_t codec = 0;
-            if (!r.read(ref.time.begin) || !r.read(ref.time.end) || !r.read(ref.offset) || !r.read(ref.storedSize) ||
-                    !r.read(ref.rawSize) || !r.read(codec))
+            if (!r.read(ref.time.begin) || !r.read(ref.time.end) || !r.read(ref.offset) || !r.read(ref.cookie) ||
+                    !r.read(ref.storedSize) || !r.read(ref.rawSize) || !r.read(codec))
                 throw Exception{"index: truncated block"};
             ref.codec = static_cast<BlockRef::Codec>(codec);
             loc.blocks.push_back(ref);

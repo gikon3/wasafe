@@ -115,17 +115,22 @@ private:
 
 /// Ключ кэша блоков. Одного смещения мало: в чужом формате один чанк несёт
 /// блоки нескольких потоков по общему offset, и они затирали бы друг друга.
+/// Поток снимает это столкновение, cookie — случай, когда общее смещение делят
+/// два блока ОДНОГО потока.
 struct BlockKey {
     bool operator==(const BlockKey&) const noexcept = default;
 
     SignalId stream;
     std::uint64_t offset = 0;
+    std::uint64_t cookie = 0;
 };
 
 struct BlockKeyHash {
     [[nodiscard]] std::size_t operator()(const BlockKey& k) const noexcept {
-        const std::size_t h = std::hash<SignalId>{}(k.stream);
-        return h ^ (std::hash<std::uint64_t>{}(k.offset) + 0x9e37'79b9'7f4a'7c15ULL + (h << 6) + (h >> 2));
+        std::size_t h = std::hash<SignalId>{}(k.stream);
+        for (const std::uint64_t part : {k.offset, k.cookie})
+            h ^= std::hash<std::uint64_t>{}(part) + 0x9e37'79b9'7f4a'7c15ULL + (h << 6) + (h >> 2);
+        return h;
     }
 };
 
@@ -142,7 +147,7 @@ public:
     /// Ссылка стабильна, пока блок не вытеснен (т.е. до следующего обращения,
     /// способного спровоцировать вытеснение).
     const DecodedBlock& get(SignalId id, const BlockRef& ref, const BlockSource& src) {
-        const BlockKey key{.stream = id, .offset = ref.offset};
+        const BlockKey key{.stream = id, .offset = ref.offset, .cookie = ref.cookie};
         if (const auto it = map_.find(key); it != map_.end()) {
             lru_.splice(lru_.begin(), lru_, it->second);  // переместить в начало (MRU)
             return it->second->block;

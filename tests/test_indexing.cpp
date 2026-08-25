@@ -52,9 +52,11 @@ TEST(Indexing, SaveLoadRoundtrip) {
     SignalIndex idx;
     idx.setTimeScale({.exponent = -9, .scale = 10});
     idx.setTimeRange({0, 1000});
-    idx.addBlock(SignalId{0}, BlockRef{{0, 500}, 0, 128, 256, BlockRef::Codec::ZSTD});
-    idx.addBlock(SignalId{0}, BlockRef{{500, 1000}, 128, 64, 200, BlockRef::Codec::NONE});
-    idx.addBlock(SignalId{7}, BlockRef{{0, 1000}, 192, 300, 300, BlockRef::Codec::NONE});
+    idx.addBlock(SignalId{0},
+            BlockRef{.time = {0, 500}, .offset = 0, .storedSize = 128, .rawSize = 256, .codec = BlockRef::Codec::ZSTD});
+    idx.addBlock(SignalId{0},
+            BlockRef{.time = {500, 1000}, .offset = 128, .cookie = 42, .storedSize = 64, .rawSize = 200});
+    idx.addBlock(SignalId{7}, BlockRef{.time = {0, 1000}, .offset = 192, .storedSize = 300, .rawSize = 300});
 
     idx.save(tmp.path);
 
@@ -71,7 +73,9 @@ TEST(Indexing, SaveLoadRoundtrip) {
     EXPECT_EQ(l0->blocks[0].storedSize, 128u);
     EXPECT_EQ(l0->blocks[0].rawSize, 256u);
     EXPECT_EQ(l0->blocks[0].codec, BlockRef::Codec::ZSTD);
+    EXPECT_EQ(l0->blocks[0].cookie, 0u);
     EXPECT_EQ(l0->blocks[1].offset, 128u);
+    EXPECT_EQ(l0->blocks[1].cookie, 42u);  // непрозрачное поле переживает сайдкар
 
     const SignalLocator* l7 = loaded.locate(SignalId{7});
     ASSERT_NE(l7, nullptr);

@@ -39,11 +39,15 @@ LazyStorage makeBackend(SignalId id) {
     idx.setTimeScale({.exponent = -12, .scale = 1});
     idx.setTimeRange({0, 50});
     idx.addBlock(id,
-            BlockRef{{0, 30}, 0, static_cast<std::uint32_t>(b0.size()), static_cast<std::uint32_t>(b0.size()),
-                    BlockRef::Codec::NONE});
+            BlockRef{.time = {0, 30},
+                    .offset = 0,
+                    .storedSize = static_cast<std::uint32_t>(b0.size()),
+                    .rawSize = static_cast<std::uint32_t>(b0.size())});
     idx.addBlock(id,
-            BlockRef{{30, 50}, 1000, static_cast<std::uint32_t>(b1.size()), static_cast<std::uint32_t>(b1.size()),
-                    BlockRef::Codec::NONE});
+            BlockRef{.time = {30, 50},
+                    .offset = 1000,
+                    .storedSize = static_cast<std::uint32_t>(b1.size()),
+                    .rawSize = static_cast<std::uint32_t>(b1.size())});
 
     return LazyStorage{std::move(idx), std::move(src)};
 }
