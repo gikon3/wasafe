@@ -1,11 +1,12 @@
 #include "wasafe/storage/decoded_block.hpp"
 
-#include <array>
 #include <cstddef>
-#include <cstring>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <variant>
+
+#include "core/byte_io.hpp"
 
 namespace WaSafe {
 
@@ -164,125 +165,39 @@ std::uint32_t DecodedBlock::width() const noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// Сериализация (хостовый порядок байт, версия 1)
+// Сериализация (little-endian, версия 3)
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr std::uint32_t kBlockMagic = 0x32424457u;  // 'WDB2'
+constexpr std::uint32_t kBlockMagic = 0x33424457u;  // 'WDB3'
 
 /// Флаги блока (байт flags заголовка).
 constexpr std::uint8_t kFlagHasBval = 1u << 0;  ///< bval-план присутствует (блок четырёхзначный)
-
-struct Header {
-    std::uint32_t magic;
-    std::uint8_t kind;
-    std::uint8_t flags;
-    std::array<std::uint8_t, 2> pad;
-    std::uint32_t width;
-    std::uint32_t count;
-};
-
-// --- LEB128 ------------------------------------------------------------------
-// Метки времени внутри блока идут неубывающе и обычно плотно, поэтому первая
-// пишется зигзагом (на случай отрицательной), а остальные — беззнаковыми
-// дельтами. Восемь байт на изменение превращаются в один-два.
-
-void putVarint(std::vector<std::byte>& out, std::uint64_t v) {
-    while (v >= 0x80u) {
-        out.push_back(static_cast<std::byte>((v & 0x7Fu) | 0x80u));
-        v >>= 7u;
-    }
-    out.push_back(static_cast<std::byte>(v));
-}
-
-[[nodiscard]] std::uint64_t zigzag(TimeStamp v) noexcept {
-    return (static_cast<std::uint64_t>(v) << 1u) ^ static_cast<std::uint64_t>(v >> 63);
-}
-
-[[nodiscard]] TimeStamp unzigzag(std::uint64_t v) noexcept {
-    return static_cast<TimeStamp>((v >> 1u) ^ (~(v & 1u) + 1u));
-}
-
-/// Дописать сырые байты POD-объекта в конец буфера.
-template <class T>
-void put(std::vector<std::byte>& out, const T& v) {
-    const std::size_t off = out.size();
-    out.resize(off + sizeof(T));
-    std::memcpy(out.data() + off, &v, sizeof(T));
-}
-template <class T>
-void putN(std::vector<std::byte>& out, const T* data, std::size_t n) {
-    if (n == 0)
-        return;
-    const std::size_t off = out.size();
-    out.resize(off + (n * sizeof(T)));
-    std::memcpy(out.data() + off, data, n * sizeof(T));
-}
-
-/// Курсор чтения с проверкой границ.
-class Reader {
-public:
-    explicit Reader(std::span<const std::byte> data) : data_{data} {}
-
-    template <class T>
-    [[nodiscard]] bool read(T& out) noexcept {
-        if (pos_ + sizeof(T) > data_.size())
-            return false;
-        std::memcpy(&out, data_.data() + pos_, sizeof(T));
-        pos_ += sizeof(T);
-        return true;
-    }
-    template <class T>
-    [[nodiscard]] bool readN(T* out, std::size_t n) noexcept {
-        if (n == 0)
-            return true;
-        if (pos_ + n * sizeof(T) > data_.size())
-            return false;
-        std::memcpy(out, data_.data() + pos_, n * sizeof(T));
-        pos_ += n * sizeof(T);
-        return true;
-    }
-
-    [[nodiscard]] bool readVarint(std::uint64_t& out) noexcept {
-        out = 0;
-        for (unsigned shift = 0; shift < 64u; shift += 7u) {
-            if (pos_ >= data_.size())
-                return false;
-            const auto byte = static_cast<std::uint8_t>(data_[pos_++]);
-            out |= static_cast<std::uint64_t>(byte & 0x7Fu) << shift;
-            if ((byte & 0x80u) == 0)
-                return true;
-        }
-        return false;  // больше десяти байт — повреждённый поток
-    }
-
-private:
-    std::span<const std::byte> data_;
-    std::size_t pos_ = 0;
-};
 
 }  // namespace
 
 std::vector<std::byte> encodeBlock(const DecodedBlock& block) {
     std::vector<std::byte> out;
+    ByteWriter w{out};
 
     const auto* logic = std::get_if<DecodedBlock::LogicStore>(&block.values_);
 
-    Header h{};
-    h.magic = kBlockMagic;
-    h.kind = static_cast<std::uint8_t>(block.kind());
-    h.flags = (logic != nullptr && !logic->bval.empty()) ? kFlagHasBval : std::uint8_t{0};
-    h.width = block.width();
-    h.count = static_cast<std::uint32_t>(block.count());
-    put(out, h);
+    // Заголовок пишется ПО ПОЛЯМ: раскладка структуры и её выравнивание не
+    // должны протекать в файл.
+    w.u32(kBlockMagic);
+    w.u8(static_cast<std::uint8_t>(block.kind()));
+    w.u8((logic != nullptr && !logic->bval.empty()) ? kFlagHasBval : std::uint8_t{0});
+    w.u32(block.width());
+    w.u32(static_cast<std::uint32_t>(block.count()));
 
-    // Время: первая метка зигзагом, дальше беззнаковые дельты.
+    // Время: первая метка зигзагом, дальше беззнаковые дельты. Метки идут
+    // неубывающе и обычно плотно, поэтому восемь байт на изменение
+    // превращаются в один-два.
     const std::size_t n = block.times_.size();
     if (n != 0) {
-        putVarint(out, zigzag(block.times_[0]));
+        w.svarint(block.times_[0]);
         for (std::size_t i = 1; i < n; ++i)
-            putVarint(out,
-                    static_cast<std::uint64_t>(block.times_[i]) - static_cast<std::uint64_t>(block.times_[i - 1]));
+            w.varint(static_cast<std::uint64_t>(block.times_[i]) - static_cast<std::uint64_t>(block.times_[i - 1]));
     }
 
     // clang-format off
@@ -290,16 +205,15 @@ std::vector<std::byte> encodeBlock(const DecodedBlock& block) {
             Overloaded{
                 [](const std::monostate&) {},
                 [&](const DecodedBlock::LogicStore& s) {
-                    putN(out, s.aval.data(), s.aval.size());
-                    putN(out, s.bval.data(), s.bval.size());  // пуст у двухзначного блока
+                    w.array(std::span{s.aval});
+                    w.array(std::span{s.bval});  // пуст у двухзначного блока
                 },
-                [&](const DecodedBlock::RealStore& s) { putN(out, s.values.data(), s.values.size()); },
+                [&](const DecodedBlock::RealStore& s) { w.array(std::span{s.values}); },
                 [&](const DecodedBlock::StringStore& s) {
                     // off[count+1], затем длина арены и сама арена.
-                    putN(out, s.offsets.data(), s.offsets.size());
-                    const std::uint32_t arena = static_cast<std::uint32_t>(s.arena.size());
-                    put(out, arena);
-                    putN(out, s.arena.data(), s.arena.size());
+                    w.array(std::span{s.offsets});
+                    w.u32(static_cast<std::uint32_t>(s.arena.size()));
+                    w.bytes(std::as_bytes(std::span{s.arena}));
                 },
             },
             block.values_);
@@ -308,35 +222,48 @@ std::vector<std::byte> encodeBlock(const DecodedBlock& block) {
 }
 
 DecodedBlock decodeBlock(std::span<const std::byte> raw) {
-    Reader r{raw};
-    Header h{};
-    if (!r.read(h))
+    ByteReader r{raw};
+
+    std::uint32_t magic = 0;
+    std::uint8_t kind = 0;
+    std::uint8_t flags = 0;
+    std::uint32_t width = 0;
+    std::uint32_t count = 0;
+    if (!r.u32(magic) || !r.u8(kind) || !r.u8(flags) || !r.u32(width) || !r.u32(count))
         throw Exception{"block: truncated header"};
-    if (h.magic != kBlockMagic)
+    if (magic != kBlockMagic)
         throw Exception{"block: bad magic"};
 
     DecodedBlock b;
     TimeStamp prev = 0;
-    for (std::uint32_t i = 0; i < h.count; ++i) {
-        std::uint64_t raw = 0;
-        if (!r.readVarint(raw))
-            throw Exception{"block: truncated times"};
-        prev = (i == 0) ? unzigzag(raw) : static_cast<TimeStamp>(static_cast<std::uint64_t>(prev) + raw);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        if (i == 0) {
+            std::int64_t first = 0;
+            if (!r.svarint(first))
+                throw Exception{"block: truncated times"};
+            prev = first;
+        }
+        else {
+            std::uint64_t delta = 0;
+            if (!r.varint(delta))
+                throw Exception{"block: truncated times"};
+            prev = static_cast<TimeStamp>(static_cast<std::uint64_t>(prev) + delta);
+        }
         b.times_.append(prev);  // колонка сама выберет узкое/широкое представление
     }
 
-    switch (static_cast<ValueKind>(h.kind)) {
+    switch (static_cast<ValueKind>(kind)) {
         case ValueKind::LOGIC: {
-            const std::size_t words = LogicVectorView::wordsFor(h.width);
-            const std::size_t n = static_cast<std::size_t>(h.count) * words;
+            const std::size_t words = LogicVectorView::wordsFor(width);
+            const std::size_t n = static_cast<std::size_t>(count) * words;
             DecodedBlock::LogicStore s;
-            s.width = h.width;
+            s.width = width;
             s.aval.resize(n);
-            if (!r.readN(s.aval.data(), n))
+            if (!r.array(std::span{s.aval}))
                 throw Exception{"block: truncated logic"};
-            if ((h.flags & kFlagHasBval) != 0) {
+            if ((flags & kFlagHasBval) != 0) {
                 s.bval.resize(n);
-                if (!r.readN(s.bval.data(), n))
+                if (!r.array(std::span{s.bval}))
                     throw Exception{"block: truncated logic"};
             }
             b.values_ = std::move(s);
@@ -344,22 +271,22 @@ DecodedBlock decodeBlock(std::span<const std::byte> raw) {
         }
         case ValueKind::REAL: {
             DecodedBlock::RealStore s;
-            s.values.resize(h.count);
-            if (!r.readN(s.values.data(), h.count))
+            s.values.resize(count);
+            if (!r.array(std::span{s.values}))
                 throw Exception{"block: truncated reals"};
             b.values_ = std::move(s);
             break;
         }
         case ValueKind::STRING: {
             DecodedBlock::StringStore s;
-            s.offsets.resize(static_cast<std::size_t>(h.count) + 1);
-            if (!r.readN(s.offsets.data(), s.offsets.size()))
+            s.offsets.resize(static_cast<std::size_t>(count) + 1);
+            if (!r.array(std::span{s.offsets}))
                 throw Exception{"block: truncated string offsets"};
             std::uint32_t arena = 0;
-            if (!r.read(arena))
+            if (!r.u32(arena))
                 throw Exception{"block: truncated arena size"};
             s.arena.resize(arena);
-            if (!r.readN(s.arena.data(), arena))
+            if (!r.bytes(std::as_writable_bytes(std::span{s.arena})))
                 throw Exception{"block: truncated string arena"};
             b.values_ = std::move(s);
             break;
