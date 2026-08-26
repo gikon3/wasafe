@@ -60,7 +60,7 @@ void writeSmallStore(const std::filesystem::path& path) {
     b->setTimeScale({.exponent = -12, .scale = 1});
     b->beginScope("top", ScopeKind::MODULE);
     const SignalId d = b->declareVar("data", makeVector(3, 0));
-    b->declareVar("temp", makeReal());
+    std::ignore = b->declareVar("temp", makeReal());
     b->endScope();
     b->headerDone();
 

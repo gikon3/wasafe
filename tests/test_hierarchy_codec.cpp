@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "core/byte_io.hpp"
@@ -25,36 +26,36 @@ Database buildGnarlyDesign() {
     sink->beginScope("top", ScopeKind::MODULE);
 
     const SignalId clk = sink->declareVar("clk", makeScalar());
-    sink->declareVar("clk_mirror", makeScalar(), clk);  // алиас: общий поток
-    sink->declareVar("bus", makeVector(7, 0, /*isSigned*/ true));
+    std::ignore = sink->declareVar("clk_mirror", makeScalar(), clk);  // алиас: общий поток
+    std::ignore = sink->declareVar("bus", makeVector(7, 0, /*isSigned*/ true));
 
     // Двухзначные (bit): fourState — единственное, чем они отличаются от logic,
     // и записывается он только для скаляра и вектора.
-    sink->declareVar("bit_flag", makeScalar(/*fourState*/ false));
-    sink->declareVar("cnt", makeVector(3, 0, /*isSigned*/ false, /*fourState*/ false));
+    std::ignore = sink->declareVar("bit_flag", makeScalar(/*fourState*/ false));
+    std::ignore = sink->declareVar("cnt", makeVector(3, 0, /*isSigned*/ false, /*fourState*/ false));
 
     const Type stateT = std::make_shared<const EnumType>(makeVector(1, 0),
             std::vector<EnumEntry>{{"IDLE", 0}, {"RUN", 1}, {"DONE", 2}});
-    sink->declareVar("state", stateT);
+    std::ignore = sink->declareVar("state", stateT);
 
     const Type pktT = makeStruct({{"hdr", makeVector(3, 0), 0}, {"flag", makeScalar(), 4}}, /*packed*/ true);
-    sink->declareVar("pkt", pktT);
+    std::ignore = sink->declareVar("pkt", pktT);
 
     const Type cellT = makeStruct({{"a", makeVector(7, 0), 0}, {"b", makeScalar(), 8}}, /*packed*/ true);
     const Type memT = makeArray(cellT, 0, 2, /*packed*/ false);
     std::vector<SignalId> leaves(expansionStreamCount(memT));
-    sink->declareVar("mem", memT, std::nullopt, leaves);
+    std::ignore = sink->declareVar("mem", memT, std::nullopt, leaves);
 
     const Type unionT = std::make_shared<const StructType>(
             std::vector<StructMember>{{"as_word", makeVector(7, 0), 0}, {"as_pair", cellT, 0}},
             /*packed*/ true, /*isUnion*/ true);
-    sink->declareVar("u", unionT);
+    std::ignore = sink->declareVar("u", unionT);
 
-    sink->declareVar("temp", makeReal());
-    sink->declareVar("label", makeString());
+    std::ignore = sink->declareVar("temp", makeReal());
+    std::ignore = sink->declareVar("label", makeString());
 
     sink->beginScope("sub", ScopeKind::GENERATE_BLOCK);
-    sink->declareVar("x", makeVector(15, 0));
+    std::ignore = sink->declareVar("x", makeVector(15, 0));
     sink->endScope();
 
     sink->endScope();
