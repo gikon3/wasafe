@@ -26,7 +26,7 @@ public:
     /// Стартовая позиция — первое РЕАЛЬНОЕ изменение в диапазоне: значение
     /// «переноса» на range.begin курсор не синтезирует (для снимка есть valueAt).
     MemoryCursor(ColumnView cols, const TimeColumn& times, TimeRange range) :
-            cols_(cols), times_(&times), range_(range), pos_(times.lowerBound(range.begin)) {}
+            cols_{cols}, times_{&times}, range_{range}, pos_{times.lowerBound(range.begin)} {}
 
     [[nodiscard]] bool next() override {
         if (pos_ >= times_->size())
@@ -60,10 +60,13 @@ private:
     ValueChange cur_{};
 };
 
-/// Индекс последнего изменения с times[i] <= t, либо SIZE_MAX.
+/// Сентинел «индекс не найден».
+constexpr std::size_t kNone = std::numeric_limits<std::size_t>::max();
+
+/// Индекс последнего изменения с times[i] <= t, либо kNone.
 std::size_t changeAtOrBefore(const TimeColumn& times, TimeStamp t) noexcept {
     const std::size_t u = times.upperBound(t);
-    return u == 0 ? SIZE_MAX : u - 1;
+    return u == 0 ? kNone : u - 1;
 }
 
 }  // namespace
@@ -183,7 +186,7 @@ ValueView MemoryStorage::valueAt(SignalId id, TimeStamp timestamp) const {
     if (!s || s->empty())
         return {};
     const std::size_t i = changeAtOrBefore(s->times(), timestamp);
-    if (i == std::numeric_limits<decltype(i)>::max())
+    if (i == kNone)
         return {};  // timestamp раньше первого изменения потока
     return s->columns().valueAt(i);
 }

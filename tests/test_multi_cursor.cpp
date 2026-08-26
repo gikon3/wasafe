@@ -22,7 +22,7 @@ namespace {
 /// его невладеющий вид.
 struct LogicScratch {
     LogicVector vec;
-    LogicScratch(std::uint32_t width, std::string_view bits) : vec(width) { vec.assignFromChars(bits); }
+    LogicScratch(std::uint32_t width, std::string_view bits) : vec{width} { vec.assignFromChars(bits); }
     [[nodiscard]] ValueView view() const { return vec; }
 };
 
@@ -96,8 +96,10 @@ void putBlock(MemoryBlockSource& src, SignalIndex& idx, SignalId id, std::uint64
     const auto raw = encodeBlock(makeLogicBlock(changes, 4));
     src.put(offset, raw);
     idx.addBlock(id,
-            BlockRef{span, offset, static_cast<std::uint32_t>(raw.size()), static_cast<std::uint32_t>(raw.size()),
-                    BlockRef::Codec::NONE});
+            BlockRef{.time = span,
+                    .offset = offset,
+                    .storedSize = static_cast<std::uint32_t>(raw.size()),
+                    .rawSize = static_cast<std::uint32_t>(raw.size())});
 }
 
 }  // namespace

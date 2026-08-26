@@ -17,7 +17,7 @@ namespace {
 struct TempStore {
     std::filesystem::path path;
 
-    explicit TempStore(std::string_view name) : path(std::filesystem::temp_directory_path() / name) { cleanup(); }
+    explicit TempStore(std::string_view name) : path{std::filesystem::temp_directory_path() / name} { cleanup(); }
     TempStore(const TempStore&) = delete;
     TempStore(TempStore&&) = delete;
     ~TempStore() { cleanup(); }
@@ -25,7 +25,6 @@ struct TempStore {
     void cleanup() const {
         std::error_code ec;
         std::filesystem::remove(path, ec);
-        std::filesystem::remove(std::filesystem::path(path) += ".wsfidx", ec);
     }
 
     TempStore& operator=(const TempStore&) = delete;

@@ -20,7 +20,7 @@ namespace {
 // (MSB слева) и отдать его невладеющий вид в value_change.
 struct LogicScratch {
     LogicVector vec;
-    explicit LogicScratch(std::uint32_t width, std::string_view bits) : vec(width) { vec.assignFromChars(bits); }
+    explicit LogicScratch(std::uint32_t width, std::string_view bits) : vec{width} { vec.assignFromChars(bits); }
     [[nodiscard]] ValueView view() const { return vec; }
 };
 

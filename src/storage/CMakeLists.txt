@@ -8,6 +8,7 @@ target_sources(wasafe
     memory_block_source.cpp
     memory_storage.cpp
     merge_cursor.cpp
+    raw_block_source.cpp
     signal_index.cpp
     storage.cpp
 )

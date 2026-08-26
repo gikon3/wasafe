@@ -1,0 +1,430 @@
+// Замеры ленивого пути wasafe. Прогоны секундного масштаба на синтетическом
+// дампе: разбор источника, повторное открытие, обходы курсором, точечные
+// запросы. Все случаи детерминированы (фиксированное зерно генератора).
+//
+//   wasafe-bench                 все случаи, таблица для чтения
+//   wasafe-bench --csv           то же машиночитаемо
+//   wasafe-bench --only=cursor   подмножество по подстроке имени
+//   wasafe-bench --scale=0.25    короче прогон (масштабируется длительность)
+
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <print>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <tuple>
+#include <vector>
+
+#include "report.hpp"
+#include "wasafe/io/store.hpp"
+#include "wasafe/storage/database.hpp"
+#include "wasafe/storage/lazy_storage.hpp"
+#include "waveform.hpp"
+
+namespace {
+
+using namespace WaSafe;
+
+struct Options {
+    double scale = 1.0;
+    bool csv = false;
+    std::string only;
+};
+
+[[nodiscard]] bool wanted(const Options& o, std::string_view name) {
+    return o.only.empty() || name.find(o.only) != std::string_view::npos;
+}
+
+[[nodiscard]] Bench::Spec specOf(const Options& o) {
+    Bench::Spec s;
+    s.endTime = static_cast<TimeStamp>(static_cast<double>(s.endTime) * o.scale);
+    return s;
+}
+
+/// Временный файл, удаляемый в деструкторе.
+struct TempStore {
+    std::filesystem::path path;
+
+    explicit TempStore(std::string_view name) : path{std::filesystem::temp_directory_path() / name} { drop(); }
+    TempStore(const TempStore&) = delete;
+    TempStore(TempStore&&) = delete;
+    ~TempStore() { drop(); }
+
+    void drop() const {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    TempStore& operator=(const TempStore&) = delete;
+    TempStore& operator=(TempStore&&) = delete;
+};
+
+/// Разобрать синтетический дамп в store и вернуть статистику.
+Bench::Stats writeStore(const std::filesystem::path& path, const Bench::Spec& spec, std::size_t blockChanges) {
+    auto sink = makeIndexingBuilder(path, {.blockChanges = blockChanges});
+    const Bench::Stats stats = Bench::generate(*sink, spec);
+    sink->finish();
+    std::ignore = sink->takeDatabase();
+    return stats;
+}
+
+/// Листовые узлы дизайна и потоки под ними — вход для всех случаев чтения.
+struct Leaves {
+    std::vector<NodeId> nodes;
+    std::vector<SignalId> streams;
+};
+
+[[nodiscard]] Leaves leavesOf(const Database& db) {
+    Leaves out;
+    out.nodes = db.leafNodes(db.root().id());
+    out.streams.reserve(out.nodes.size());
+    for (const NodeId n : out.nodes) {
+        if (const auto id = db.signalHandle(n).streamId())
+            out.streams.push_back(*id);
+    }
+    return out;
+}
+
+/// Смешивание в контрольную сумму. Простое сложение времён тут не годится:
+/// метки лежат на регулярной сетке, суммы выходят кратными и вырождаются в ноль.
+[[nodiscard]] std::uint64_t mix(std::uint64_t acc, std::uint64_t v) noexcept {
+    return acc ^ (v + 0x9e37'79b9'7f4a'7c15ull + (acc << 6u) + (acc >> 2u));
+}
+
+/// Детерминированный дребезг для случайных запросов.
+class Rng {
+public:
+    explicit Rng(std::uint64_t seed) noexcept : state_{seed | 1u} {}
+
+    std::uint64_t next() noexcept {
+        state_ ^= state_ << 13u;
+        state_ ^= state_ >> 7u;
+        state_ ^= state_ << 17u;
+        return state_;
+    }
+
+private:
+    std::uint64_t state_;
+};
+
+// ---------------------------------------------------------------------------
+// Разбор источника и открытие: цифры для разговора о замене формата (§7.10)
+// ---------------------------------------------------------------------------
+void benchIngest(Bench::Report& report, const Options& opts, const std::filesystem::path& corpus) {
+    const Bench::Spec spec = specOf(opts);
+
+    if (wanted(opts, "ingest_memory")) {
+        auto sink = makeMemoryBuilder();
+        const Bench::Timer timer;
+        const Bench::Stats stats = Bench::generate(*sink, spec);
+        sink->finish();
+        const Database db = sink->takeDatabase();
+        const double ms = timer.ms();
+
+        report.add("ingest_memory")
+                .num("changes", static_cast<double>(stats.changes), 0)
+                .num("ms", ms)
+                .num("M_chg/s", static_cast<double>(stats.changes) / ms / 1000.0, 2);
+    }
+
+    if (wanted(opts, "ingest_store")) {
+        const Bench::Timer timer;
+        const Bench::Stats stats = writeStore(corpus, spec, 4096);
+        const double ms = timer.ms();
+        const auto bytes = static_cast<double>(std::filesystem::file_size(corpus));
+
+        report.add("ingest_store")
+                .num("changes", static_cast<double>(stats.changes), 0)
+                .num("ms", ms)
+                .num("M_chg/s", static_cast<double>(stats.changes) / ms / 1000.0, 2)
+                .num("MiB", bytes / 1048576.0, 1)
+                .num("B/chg", bytes / static_cast<double>(stats.changes), 2);
+    }
+
+    if (wanted(opts, "open_store")) {
+        const Bench::Timer timer;
+        const Database db = openStore(corpus);
+        const double ms = timer.ms();
+        report.add("open_store").num("ms", ms, 2).num("signals", static_cast<double>(db.hierarchy().signalCount()), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Курсоры: нужна ли специализация мультикурсора в LazyStorage (§7.3)
+// ---------------------------------------------------------------------------
+void benchCursors(Bench::Report& report, const Options& opts, const std::filesystem::path& corpus) {
+    if (!wanted(opts, "cursor"))
+        return;
+
+    const Database db = openStore(corpus);
+    const Leaves leaves = leavesOf(db);
+    const TimeRange range = db.timeRange();
+
+    for (const std::size_t n : {std::size_t{16}, std::size_t{64}, std::size_t{256}}) {
+        if (n > leaves.nodes.size())
+            continue;
+        const std::span<const NodeId> nodes{leaves.nodes.data(), n};
+
+        // Пакетный курсор: слияние N подкурсоров по времени. Блоки читаются
+        // вперемешку между потоками — именно это и предлагалось оптимизировать.
+        std::uint64_t batchSeen = 0;
+        double batchMs = 0;
+        {
+            const Bench::Timer timer;
+            auto cur = db.changes(nodes, range);
+            while (cur.next())
+                batchSeen = mix(batchSeen, static_cast<std::uint64_t>(cur->time));
+            batchMs = timer.ms();
+        }
+
+        // Последовательно по одному потоку: блоки каждого читаются подряд —
+        // это верхняя граница «идеально последовательного» доступа.
+        std::uint64_t serialSeen = 0;
+        double serialMs = 0;
+        {
+            const Bench::Timer timer;
+            for (const NodeId node : nodes) {
+                auto cur = db.changes(node, range);
+                while (cur.next())
+                    serialSeen = mix(serialSeen, static_cast<std::uint64_t>(cur->time));
+            }
+            serialMs = timer.ms();
+        }
+
+        report.add(std::format("cursor_batch_{}", n))
+                .num("ms", batchMs)
+                .num("checksum", static_cast<double>(batchSeen % 100000), 0);
+        report.add(std::format("cursor_serial_{}", n))
+                .num("ms", serialMs)
+                .num("checksum", static_cast<double>(serialSeen % 100000), 0)
+                .num("vs_batch", serialMs / batchMs, 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Тот же замер на MemoryStorage: блоков там нет вовсе, поэтому разница
+// batch/serial здесь — ЧИСТАЯ цена слияния. Вычитая её из ленивого случая,
+// видно, сколько добавляет раскладка блоков.
+// ---------------------------------------------------------------------------
+void benchCursorsInMemory(Bench::Report& report, const Options& opts) {
+    if (!wanted(opts, "cursor_mem"))
+        return;
+
+    auto sink = makeMemoryBuilder();
+    std::ignore = Bench::generate(*sink, specOf(opts));
+    sink->finish();
+    const Database db = sink->takeDatabase();
+
+    const Leaves leaves = leavesOf(db);
+    const TimeRange range = db.timeRange();
+
+    for (const std::size_t n : {std::size_t{16}, std::size_t{64}, std::size_t{256}}) {
+        if (n > leaves.nodes.size())
+            continue;
+        const std::span<const NodeId> nodes{leaves.nodes.data(), n};
+
+        std::uint64_t batchSeen = 0;
+        const Bench::Timer batchTimer;
+        {
+            auto cur = db.changes(nodes, range);
+            while (cur.next())
+                batchSeen = mix(batchSeen, static_cast<std::uint64_t>(cur->time));
+        }
+        const double batchMs = batchTimer.ms();
+
+        std::uint64_t serialSeen = 0;
+        const Bench::Timer serialTimer;
+        for (const NodeId node : nodes) {
+            auto cur = db.changes(node, range);
+            while (cur.next())
+                serialSeen = mix(serialSeen, static_cast<std::uint64_t>(cur->time));
+        }
+        const double serialMs = serialTimer.ms();
+
+        report.add(std::format("cursor_mem_batch_{}", n))
+                .num("ms", batchMs)
+                .num("checksum", static_cast<double>(batchSeen % 100000), 0);
+        report.add(std::format("cursor_mem_serial_{}", n))
+                .num("ms", serialMs)
+                .num("checksum", static_cast<double>(serialSeen % 100000), 0)
+                .num("vs_batch", serialMs / batchMs, 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// prefetch и курсоры: курсор идёт мимо кэша, значит прогрев для него — холостая
+// работа. Вопрос §7.3 — насколько дорогая.
+// ---------------------------------------------------------------------------
+void benchPrefetch(Bench::Report& report, const Options& opts, const std::filesystem::path& corpus) {
+    if (!wanted(opts, "prefetch"))
+        return;
+
+    const Database db = openStore(corpus);
+    const Leaves leaves = leavesOf(db);
+    const TimeRange range = db.timeRange();
+    const std::size_t n = std::min<std::size_t>(64, leaves.nodes.size());
+    const std::span<const NodeId> nodes{leaves.nodes.data(), n};
+    const std::span<const SignalId> streams{leaves.streams.data(), std::min(n, leaves.streams.size())};
+
+    std::uint64_t seen = 0;
+    const Bench::Timer warm;
+    db.storage().prefetch(streams, range);
+    const double prefetchMs = warm.ms();
+
+    const Bench::Timer sweep;
+    auto cur = db.changes(nodes, range);
+    while (cur.next())
+        seen = mix(seen, static_cast<std::uint64_t>(cur->time));
+    const double cursorMs = sweep.ms();
+
+    report.add("prefetch_then_cursor")
+            .num("prefetch_ms", prefetchMs)
+            .num("cursor_ms", cursorMs)
+            .num("cached_MiB", static_cast<double>(db.storage().cachedBytes()) / 1048576.0, 1)
+            .num("checksum", static_cast<double>(seen % 100000), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Точечный доступ и размер кэша: сценарий GUI «ведём курсором по осциллограмме»
+// ---------------------------------------------------------------------------
+void benchValueAt(Bench::Report& report, const Options& opts, const std::filesystem::path& corpus) {
+    if (!wanted(opts, "value_at"))
+        return;
+
+    constexpr std::size_t kQueries = 50'000;
+
+    for (const std::size_t cacheMiB : {std::size_t{1}, std::size_t{16}, std::size_t{256}}) {
+        const Database db = openStore(corpus, {.cacheBytes = cacheMiB << 20});
+        const Leaves leaves = leavesOf(db);
+        const TimeRange range = db.timeRange();
+        const auto span = static_cast<std::uint64_t>(range.end - range.begin);
+
+        Rng rng{777};
+        std::uint64_t seen = 0;
+        const Bench::Timer timer;
+        for (std::size_t q = 0; q < kQueries; ++q) {
+            const NodeId node = leaves.nodes[rng.next() % leaves.nodes.size()];
+            const auto t = static_cast<TimeStamp>(range.begin + static_cast<TimeStamp>(rng.next() % span));
+            seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(node, t).kind()));
+        }
+        const double ms = timer.ms();
+
+        report.add(std::format("value_at_random_{}MiB", cacheMiB))
+                .num("us/query", ms * 1000.0 / static_cast<double>(kQueries), 2)
+                .num("ms", ms)
+                .num("cached_MiB", static_cast<double>(db.storage().cachedBytes()) / 1048576.0, 1)
+                .num("checksum", static_cast<double>(seen % 100000), 0);
+    }
+
+    // Ведение курсора: время растёт монотонно, сигналы фиксированы — попадания
+    // в кэш должны быть почти стопроцентными.
+    const Database db = openStore(corpus);
+    const Leaves leaves = leavesOf(db);
+    const TimeRange range = db.timeRange();
+    const std::size_t visible = std::min<std::size_t>(64, leaves.nodes.size());
+    constexpr std::size_t kSteps = 2000;
+
+    std::uint64_t seen = 0;
+    const Bench::Timer timer;
+    for (std::size_t step = 0; step < kSteps; ++step) {
+        const auto t = static_cast<TimeStamp>(range.begin +
+                static_cast<TimeStamp>(
+                        (range.end - range.begin) * static_cast<TimeStamp>(step) / static_cast<TimeStamp>(kSteps)));
+        for (std::size_t i = 0; i < visible; ++i)
+            seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(leaves.nodes[i], t).kind()));
+    }
+    const double ms = timer.ms();
+
+    report.add("value_at_sweep")
+            .num("us/query", ms * 1000.0 / static_cast<double>(kSteps * visible), 3)
+            .num("ms", ms)
+            .num("queries", static_cast<double>(kSteps * visible), 0)
+            .num("checksum", static_cast<double>(seen % 100000), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Сетка blockChanges: значение по умолчанию (4096) взято из общих соображений
+// ---------------------------------------------------------------------------
+void benchBlockSize(Bench::Report& report, const Options& opts) {
+    if (!wanted(opts, "block_size"))
+        return;
+
+    const Bench::Spec spec = specOf(opts);
+    for (const std::size_t blockChanges :
+            {std::size_t{256}, std::size_t{1024}, std::size_t{4096}, std::size_t{16384}}) {
+        const TempStore tmp{std::format("wasafe_bench_bs{}.wsfstore", blockChanges)};
+
+        const Bench::Timer ingestTimer;
+        const Bench::Stats stats = writeStore(tmp.path, spec, blockChanges);
+        const double ingestMs = ingestTimer.ms();
+        const auto bytes = static_cast<double>(std::filesystem::file_size(tmp.path));
+
+        const Database db = openStore(tmp.path);
+        const Leaves leaves = leavesOf(db);
+        const TimeRange range = db.timeRange();
+        const auto span = static_cast<std::uint64_t>(range.end - range.begin);
+
+        Rng rng{4242};
+        std::uint64_t seen = 0;
+        constexpr std::size_t kQueries = 20'000;
+        const Bench::Timer queryTimer;
+        for (std::size_t q = 0; q < kQueries; ++q) {
+            const NodeId node = leaves.nodes[rng.next() % leaves.nodes.size()];
+            const auto t = static_cast<TimeStamp>(range.begin + static_cast<TimeStamp>(rng.next() % span));
+            seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(node, t).kind()));
+        }
+        const double queryMs = queryTimer.ms();
+
+        report.add(std::format("block_size_{}", blockChanges))
+                .num("ingest_ms", ingestMs)
+                .num("MiB", bytes / 1048576.0, 1)
+                .num("B/chg", bytes / static_cast<double>(stats.changes), 2)
+                .num("us/query", queryMs * 1000.0 / static_cast<double>(kQueries), 2)
+                .num("checksum", static_cast<double>(seen % 100000), 0);
+    }
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    Options opts;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg{argv[i]};
+        if (arg == "--csv")
+            opts.csv = true;
+        else if (arg.starts_with("--scale="))
+            opts.scale = std::stod(std::string{arg.substr(8)});
+        else if (arg.starts_with("--only="))
+            opts.only = std::string{arg.substr(7)};
+        else {
+            std::print(stderr, "usage: wasafe-bench [--csv] [--scale=X] [--only=substr]\n");
+            return 2;
+        }
+    }
+
+    const Bench::Spec spec = specOf(opts);
+    if (!opts.csv) {
+        std::print("дамп: {} потоков, {} тиков, ~{} изменений\n\n", spec.streams,
+                static_cast<std::int64_t>(spec.endTime), Bench::estimateChanges(spec));
+    }
+
+    Bench::Report report;
+    const TempStore corpus{"wasafe_bench_corpus.wsfstore"};
+
+    // Корпус нужен всем случаям чтения, поэтому пишется всегда — даже если сам
+    // случай ingest_store отфильтрован.
+    if (!wanted(opts, "ingest_store"))
+        std::ignore = writeStore(corpus.path, spec, 4096);
+
+    benchIngest(report, opts, corpus.path);
+    benchCursors(report, opts, corpus.path);
+    benchCursorsInMemory(report, opts);
+    benchPrefetch(report, opts, corpus.path);
+    benchValueAt(report, opts, corpus.path);
+    benchBlockSize(report, opts);
+
+    report.print(opts.csv);
+    return 0;
+}

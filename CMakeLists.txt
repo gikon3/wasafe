@@ -24,6 +24,7 @@ option(WASAFE_WITH_ZSTD "Сжатие блоков ленивого backend че
 option(WASAFE_INSTALL "Генерировать правила установки" ${PROJECT_IS_TOP_LEVEL})
 option(WASAFE_BUILD_TESTS "Собирать тесты" ${PROJECT_IS_TOP_LEVEL})
 option(WASAFE_BUILD_EXAMPLES "Собирать примеры" OFF)
+option(WASAFE_BUILD_BENCHMARKS "Собирать замеры" OFF)
 
 # ---------------------------------------------------------------------------
 # Общие настройки компилятора
@@ -52,6 +53,10 @@ add_subdirectory(src)
 
 if(WASAFE_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(WASAFE_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
 endif()
 
 if(WASAFE_BUILD_TESTS)

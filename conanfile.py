@@ -41,6 +41,7 @@ class WaSafeConan(ConanFile):
         "src/*",
         "tests/*",
         "examples/*",
+        "bench/*",
         "LICENSE*",
     )
 

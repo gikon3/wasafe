@@ -97,7 +97,7 @@ TEST(TimeColumn, StaysNarrowAtLimit) {
     EXPECT_EQ(c.lowerBound(1000 + kNarrowLimit), 1u);
 }
 
-// Ловушка переполнения: поиск получает границы kWholeTime (INT64_MIN/MAX),
+// Ловушка переполнения: поиск получает границы kWholeTime (min/max TimeStamp),
 // где прямое вычитание t - base переполнило бы int64.
 TEST(TimeColumn, SearchWithExtremeBounds) {
     constexpr TimeStamp kMin = std::numeric_limits<TimeStamp>::min();

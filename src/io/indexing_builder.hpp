@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <vector>
 
 #include "io/base_builder.hpp"
@@ -17,6 +18,9 @@ namespace WaSafe {
 /// если суммарный объём накопителей превысил bufferBytes). Диаграмма целиком
 /// в ОЗУ не собирается, поэтому пик памяти не зависит ни от размера дампа, ни
 /// от числа сигналов.
+///
+/// Файл получается самодостаточным: заголовок в конструкторе, блоки по мере
+/// разбора, а в finish() — иерархия, индекс и футер (см. store_layout.hpp).
 class IndexingBuilder final : public BaseBuilder {
 public:
     IndexingBuilder(std::filesystem::path store, IndexingOptions opts);
@@ -48,7 +52,12 @@ private:
     /// не плодить крошечные блоки у редко меняющихся сигналов.
     void relieve();
 
-    [[nodiscard]] std::filesystem::path sidecarPath() const;
+    /// Записать байты в store и подвинуть offset_. Единственная точка записи,
+    /// поэтому смещение блока и фактический конец файла не расходятся.
+    void writeRaw(std::span<const std::byte> data);
+
+    /// Дописать хвост файла: метаданные (иерархия + индекс) и футер.
+    void writeTrailer();
 
 private:
     static constexpr std::size_t kDefaultBlockChanges = 4096;

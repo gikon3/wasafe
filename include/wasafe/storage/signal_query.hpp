@@ -19,7 +19,7 @@ class Database;
 /// массовой подгрузкой диапазонов (с подсказкой prefetch ленивому storage).
 class WASAFE_API SignalQuery {
 public:
-    explicit SignalQuery(const Database& db) noexcept : db_(&db) {}
+    explicit SignalQuery(const Database& db) noexcept : db_{&db} {}
 
     /// Все сигналы, чей полный путь соответствует glob-шаблону ("top.*.clk",
     /// "top.cpu.regs[*]"). Поиск рекурсивный по всей иерархии.

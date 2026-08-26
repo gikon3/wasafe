@@ -2,6 +2,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -15,7 +16,7 @@ namespace WaSafe {
 using TimeStamp = std::int64_t;
 
 /// Маркер «время не задано».
-inline constexpr TimeStamp kNoTime = INT64_MIN;
+inline constexpr TimeStamp kNoTime = std::numeric_limits<TimeStamp>::min();
 
 /// Десятичная приставка единицы времени (показатель степени десяти, в секундах).
 enum class TimeUnit : std::int8_t {
@@ -58,7 +59,7 @@ struct TimeRange {
 };
 
 /// Полный диапазон времени (используется как «загрузить всё»).
-inline constexpr TimeRange kWholeTime{INT64_MIN, INT64_MAX};
+inline constexpr TimeRange kWholeTime{std::numeric_limits<TimeStamp>::min(), std::numeric_limits<TimeStamp>::max()};
 
 /// Человекочитаемое представление масштаба ("1 ps", "10 ns").
 [[nodiscard]] WASAFE_API std::string formatTimeScale(TimeScale ts);

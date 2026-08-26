@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -15,6 +14,9 @@
 
 namespace WaSafe {
 
+class ByteReader;
+class ByteWriter;
+
 /// Индекс одного потока: упорядоченный по времени список блоков.
 /// Позволяет за O(log N) найти блоки, пересекающие запрошенный диапазон.
 struct SignalLocator {
@@ -25,8 +27,8 @@ struct SignalLocator {
 };
 
 /// Глобальный индекс хранилища: путь к данным каждого сигнала и геометрия блоков.
-/// Может быть построен при первом открытии (для VCD) либо сериализован в сайдкар
-/// (*.wsfidx), чтобы повторные открытия не сканировали файл целиком.
+/// Строится при разборе источника и уезжает в хвост *.wsfstore, чтобы повторные
+/// открытия не сканировали исходный дамп заново.
 class WASAFE_API SignalIndex {
 public:
     SignalIndex() = default;
@@ -42,9 +44,12 @@ public:
 
     [[nodiscard]] std::size_t streamCount() const noexcept { return streams_.size(); }
 
-    // --- сериализация сайдкара ----------------------------------------------
-    void save(const std::filesystem::path& path) const;
-    [[nodiscard]] static SignalIndex load(const std::filesystem::path& path);
+    // --- сериализация ---------------------------------------------------------
+    // Индекс пишется секцией в общий поток файла store, а не отдельным файлом:
+    // без него значения бесполезны, и разделять их было бы нечего. ByteWriter и
+    // ByteReader — внутренние типы, поэтому позвать это можно только из ядра.
+    void encode(ByteWriter& w) const;
+    [[nodiscard]] static SignalIndex decode(ByteReader& r);
 
 private:
     std::unordered_map<SignalId, SignalLocator> streams_;

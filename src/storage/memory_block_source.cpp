@@ -10,9 +10,8 @@ void MemoryBlockSource::put(std::uint64_t offset, std::vector<std::byte> bytes) 
 
 std::vector<std::byte> MemoryBlockSource::readBlock(const BlockRef& block) const {
     const auto it = blocks_.find(block.offset);
-    if (it == blocks_.end()) {
+    if (it == blocks_.end())
         throw std::runtime_error("MemoryBlockSource: no block at given offset");
-    }
     return decompress(it->second, block.codec, block.rawSize);
 }
 

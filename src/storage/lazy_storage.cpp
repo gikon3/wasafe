@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <functional>
+#include <iterator>
+#include <limits>
 #include <list>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 
 #include "wasafe/storage/decoded_block.hpp"
@@ -16,28 +19,31 @@ namespace {
 
 // --- индексные помощники по упорядоченным массивам --------------------------
 
-/// Индекс последнего блока с time.begin <= t, либо SIZE_MAX.
+/// Сентинел «индекс не найден».
+constexpr std::size_t kNone = std::numeric_limits<std::size_t>::max();
+
+/// Индекс последнего блока с time.begin <= t, либо kNone.
 std::size_t blockAtOrBefore(const std::vector<BlockRef>& bs, TimeStamp t) noexcept {
     const auto it = std::ranges::upper_bound(bs, t, std::less{}, [](const BlockRef& b) { return b.time.begin; });
-    return it == bs.begin() ? SIZE_MAX : static_cast<std::size_t>((it - 1) - bs.begin());
+    return it == bs.begin() ? kNone : std::distance(bs.begin(), std::prev(it));
 }
 
 /// Индекс первого блока с time.end > t (т.е. способного содержать изменения после t).
 std::size_t firstBlockEndingAfter(const std::vector<BlockRef>& bs, TimeStamp t) noexcept {
     const auto it = std::ranges::lower_bound(bs, t, std::less_equal{}, [](const BlockRef& b) { return b.time.end; });
-    return static_cast<std::size_t>(it - bs.begin());
+    return std::distance(bs.begin(), it);
 }
 
-/// Индекс последнего блока с time.begin < t, либо SIZE_MAX.
+/// Индекс последнего блока с time.begin < t, либо kNone.
 std::size_t lastBlockBeginningBefore(const std::vector<BlockRef>& bs, TimeStamp t) noexcept {
     const auto it = std::ranges::lower_bound(bs, t, std::less{}, [](const BlockRef& b) { return b.time.begin; });
-    return it == bs.begin() ? SIZE_MAX : static_cast<std::size_t>((it - 1) - bs.begin());
+    return it == bs.begin() ? kNone : std::distance(bs.begin(), std::prev(it));
 }
 
-/// Индекс последнего изменения с times[i] <= t, либо SIZE_MAX.
+/// Индекс последнего изменения с times[i] <= t, либо kNone.
 std::size_t changeAtOrBefore(const TimeColumn& times, TimeStamp t) noexcept {
     const std::size_t u = times.upperBound(t);
-    return u == 0 ? SIZE_MAX : u - 1;
+    return u == 0 ? kNone : u - 1;
 }
 
 /// Курсор «конца данных»: всегда пуст (нет потока / пустой диапазон).
@@ -56,8 +62,9 @@ private:
 /// до следующего next(), пересекающего границу блока.
 class LazyCursor final : public Cursor {
 public:
-    LazyCursor(const BlockSource* src, const SignalLocator* loc, TimeRange range, std::size_t blockFirst,
-            std::size_t blockLast) : src_(src), loc_(loc), range_(range), block_(blockFirst), blockLast_(blockLast) {}
+    LazyCursor(const BlockSource* src, SignalId id, const SignalLocator* loc, TimeRange range, std::size_t blockFirst,
+            std::size_t blockLast) :
+            src_{src}, id_{id}, loc_{loc}, range_{range}, block_{blockFirst}, blockLast_{blockLast} {}
 
     [[nodiscard]] bool next() override {
         for (;;) {
@@ -92,9 +99,10 @@ public:
     [[nodiscard]] const ValueChange& current() const noexcept override { return current_; }
 
 private:
-    void load(std::size_t bi) { cur_ = decodeBlock(src_->readBlock(loc_->blocks[bi])); }
+    void load(std::size_t bi) { cur_ = src_->decode(id_, loc_->blocks[bi]); }
 
     const BlockSource* src_;
+    SignalId id_;
     const SignalLocator* loc_;
     TimeRange range_;
     std::size_t block_;
@@ -105,25 +113,47 @@ private:
     ValueChange current_{};
 };
 
+/// Ключ кэша блоков. Одного смещения мало: в чужом формате один чанк несёт
+/// блоки нескольких потоков по общему offset, и они затирали бы друг друга.
+/// Поток снимает это столкновение, cookie — случай, когда общее смещение делят
+/// два блока ОДНОГО потока.
+struct BlockKey {
+    bool operator==(const BlockKey&) const noexcept = default;
+
+    SignalId stream;
+    std::uint64_t offset = 0;
+    std::uint64_t cookie = 0;
+};
+
+struct BlockKeyHash {
+    [[nodiscard]] std::size_t operator()(const BlockKey& k) const noexcept {
+        std::size_t h = std::hash<SignalId>{}(k.stream);
+        for (const std::uint64_t part : {k.offset, k.cookie})
+            h ^= std::hash<std::uint64_t>{}(part) + 0x9e37'79b9'7f4a'7c15ULL + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// LRU-кэш декодированных блоков (ключ — смещение блока в источнике).
+// LRU-кэш декодированных блоков (ключ — поток плюс смещение блока).
 // ---------------------------------------------------------------------------
 class LazyStorage::BlockCache {
 public:
-    explicit BlockCache(std::size_t limit) : limit_(limit) {}
+    explicit BlockCache(std::size_t limit) : limit_{limit} {}
 
     /// Вернуть декодированный блок, при промахе загрузив через источник.
     /// Ссылка стабильна, пока блок не вытеснен (т.е. до следующего обращения,
     /// способного спровоцировать вытеснение).
-    const DecodedBlock& get(const BlockRef& ref, const BlockSource& src) {
-        if (const auto it = map_.find(ref.offset); it != map_.end()) {
+    const DecodedBlock& get(SignalId id, const BlockRef& ref, const BlockSource& src) {
+        const BlockKey key{.stream = id, .offset = ref.offset, .cookie = ref.cookie};
+        if (const auto it = map_.find(key); it != map_.end()) {
             lru_.splice(lru_.begin(), lru_, it->second);  // переместить в начало (MRU)
             return it->second->block;
         }
-        lru_.push_front(Entry{ref, decodeBlock(src.readBlock(ref))});
-        map_[ref.offset] = lru_.begin();
+        lru_.push_front(Entry{key, ref.time, src.decode(id, ref)});
+        map_[key] = lru_.begin();
         bytes_ += lru_.front().block.byteSize();
         evict();
         return lru_.front().block;
@@ -131,9 +161,9 @@ public:
 
     void release(TimeRange keep) {
         for (auto it = lru_.begin(); it != lru_.end();) {
-            if (!it->ref.time.overlaps(keep)) {
+            if (!it->time.overlaps(keep)) {
                 bytes_ -= it->block.byteSize();
-                map_.erase(it->ref.offset);
+                map_.erase(it->key);
                 it = lru_.erase(it);
             }
             else {
@@ -146,7 +176,8 @@ public:
 
 private:
     struct Entry {
-        BlockRef ref;
+        BlockKey key;
+        TimeRange time;  ///< покрытие блока: по нему работает release(keep)
         DecodedBlock block;
     };
 
@@ -155,7 +186,7 @@ private:
         while (bytes_ > limit_ && lru_.size() > 1) {
             Entry const& back = lru_.back();
             bytes_ -= back.block.byteSize();
-            map_.erase(back.ref.offset);
+            map_.erase(back.key);
             lru_.pop_back();
         }
     }
@@ -163,15 +194,15 @@ private:
     std::size_t limit_;
     std::size_t bytes_ = 0;
     std::list<Entry> lru_;  // front = MRU
-    std::unordered_map<std::uint64_t, std::list<Entry>::iterator> map_;
+    std::unordered_map<BlockKey, std::list<Entry>::iterator, BlockKeyHash> map_;
 };
 
 // ---------------------------------------------------------------------------
 // LazyStorage
 // ---------------------------------------------------------------------------
 LazyStorage::LazyStorage(SignalIndex index, std::unique_ptr<BlockSource> source, Options opts) :
-        index_(std::move(index)), source_(std::move(source)), cache_(std::make_unique<BlockCache>(opts.cacheBytes)),
-        opts_(opts) {
+        index_{std::move(index)}, source_{std::move(source)}, cache_{std::make_unique<BlockCache>(opts.cacheBytes)},
+        opts_{opts} {
 }
 
 // Здесь BlockCache полон — можно генерировать уничтожение unique_ptr<BlockCache>.
@@ -190,17 +221,17 @@ ValueView LazyStorage::valueAt(SignalId id, TimeStamp t) const {
         return {};
 
     const std::size_t bi = blockAtOrBefore(loc->blocks, t);
-    if (bi == SIZE_MAX)
+    if (bi == kNone)
         return {};  // t раньше начала всех данных
 
-    const DecodedBlock& blk = cache_->get(loc->blocks[bi], *source_);
-    if (const std::size_t idx = changeAtOrBefore(blk.times(), t); idx != SIZE_MAX) {
+    const DecodedBlock& blk = cache_->get(id, loc->blocks[bi], *source_);
+    if (const std::size_t idx = changeAtOrBefore(blk.times(), t); idx != kNone) {
         return blk.valueAtIndex(idx);
     }
     // t < первого изменения этого блока — значение перенесено из предыдущего блока
     if (bi == 0)
         return {};
-    const DecodedBlock& prev = cache_->get(loc->blocks[bi - 1], *source_);
+    const DecodedBlock& prev = cache_->get(id, loc->blocks[bi - 1], *source_);
     return prev.empty() ? ValueView{} : prev.valueAtIndex(prev.count() - 1);
 }
 
@@ -211,7 +242,7 @@ std::unique_ptr<Cursor> LazyStorage::openCursor(SignalId id, TimeRange range) co
     const auto [first, last] = loc->blocksIn(range);
     if (first >= last)
         return std::make_unique<EmptyCursor>();
-    return std::make_unique<LazyCursor>(source_.get(), loc, range, first, last);
+    return std::make_unique<LazyCursor>(source_.get(), id, loc, range, first, last);
 }
 
 TimeStamp LazyStorage::nextChange(SignalId id, TimeStamp after) const {
@@ -220,7 +251,7 @@ TimeStamp LazyStorage::nextChange(SignalId id, TimeStamp after) const {
         return kNoTime;
 
     for (std::size_t bi = firstBlockEndingAfter(loc->blocks, after); bi < loc->blocks.size(); ++bi) {
-        const DecodedBlock& blk = cache_->get(loc->blocks[bi], *source_);
+        const DecodedBlock& blk = cache_->get(id, loc->blocks[bi], *source_);
         const TimeColumn& times = blk.times();
         if (const std::size_t i = times.upperBound(after); i != times.size())
             return times[i];
@@ -235,11 +266,11 @@ TimeStamp LazyStorage::prevChange(SignalId id, TimeStamp before) const {
         return kNoTime;
 
     const std::size_t start = lastBlockBeginningBefore(loc->blocks, before);
-    if (start == SIZE_MAX)
+    if (start == kNone)
         return kNoTime;
 
     for (std::size_t bi = start + 1; bi-- > 0;) {
-        const DecodedBlock& blk = cache_->get(loc->blocks[bi], *source_);
+        const DecodedBlock& blk = cache_->get(id, loc->blocks[bi], *source_);
         const TimeColumn& times = blk.times();
         if (const std::size_t i = times.lowerBound(before); i != 0)
             return times[i - 1];
@@ -254,9 +285,8 @@ void LazyStorage::prefetch(std::span<const SignalId> ids, TimeRange range) {
         if (!loc)
             continue;
         const auto [first, last] = loc->blocksIn(range);
-        for (std::size_t bi = first; bi < last; ++bi) {
-            (void)cache_->get(loc->blocks[bi], *source_);
-        }
+        for (std::size_t bi = first; bi < last; ++bi)
+            std::ignore = cache_->get(id, loc->blocks[bi], *source_);
     }
 }
 
