@@ -2,6 +2,7 @@ target_sources(wasafe
     PRIVATE
     base_builder.cpp
     builder.cpp
+    hierarchy_codec.cpp
     indexing_builder.cpp
     ingest.cpp
     memory_builder.cpp

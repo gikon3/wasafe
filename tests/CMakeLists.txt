@@ -13,6 +13,7 @@ add_executable(wasafe_tests
     test_time_column.cpp
     test_byte_io.cpp
     test_hierarchy.cpp
+    test_hierarchy_codec.cpp
     test_lazy_backend.cpp
     test_foreign_source.cpp
     test_multi_cursor.cpp
@@ -23,6 +24,7 @@ add_executable(wasafe_tests
     # Внутренние модули, проверяемые напрямую: библиотека собрана со скрытой
     # видимостью, поэтому при shared-сборке её символы тестам не видны.
     ${PROJECT_SOURCE_DIR}/src/core/byte_io.cpp
+    ${PROJECT_SOURCE_DIR}/src/io/hierarchy_codec.cpp
 )
 
 set_target_properties(wasafe_tests PROPERTIES
