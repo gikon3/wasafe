@@ -52,7 +52,6 @@ struct TempStore {
     ~TempStore() {
         std::error_code ec;
         std::filesystem::remove(path, ec);
-        std::filesystem::remove(std::filesystem::path(path) += ".wsfidx", ec);
     }
 
     TempStore& operator=(const TempStore&) = delete;

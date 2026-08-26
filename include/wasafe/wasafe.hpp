@@ -18,6 +18,7 @@
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/ingest.hpp"
 #include "wasafe/io/reader.hpp"
+#include "wasafe/io/store.hpp"
 #include "wasafe/io/writer.hpp"
 #include "wasafe/model/hierarchy.hpp"
 #include "wasafe/model/scope.hpp"

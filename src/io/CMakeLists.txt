@@ -5,5 +5,6 @@ target_sources(wasafe
     hierarchy_codec.cpp
     indexing_builder.cpp
     ingest.cpp
+    store.cpp
     memory_builder.cpp
 )

@@ -4,6 +4,9 @@
 #include <cstddef>
 #include <utility>
 
+#include "core/byte_io.hpp"
+#include "io/hierarchy_codec.hpp"
+#include "io/store_layout.hpp"
 #include "wasafe/config.hpp"
 #include "wasafe/storage/database.hpp"
 #include "wasafe/storage/file_block_source.hpp"
@@ -46,9 +49,44 @@ IndexingBuilder::IndexingBuilder(std::filesystem::path store, IndexingOptions op
         bufferBytes_{opts.bufferBytes ? opts.bufferBytes : kDefaultBufferBytes},
         out_{store_, std::ios::binary | std::ios::trunc} {
     // Поток открывается сразу: запись идёт по мере разбора, а не в finish().
-    // Цена — прерванная ingestion оставляет частичный store.
+    // Цена — прерванная ingestion оставляет файл без футера; открыть его нельзя,
+    // но по заголовку видно, что это именно недописанный store.
     if (!out_)
         throw Exception{"cannot open store: " + store_.string()};
+
+    std::vector<std::byte> header;
+    ByteWriter w{header};
+    w.u32(StoreLayout::kMagic);
+    w.u32(StoreLayout::kVersion);
+    writeRaw(header);
+    offset_ = StoreLayout::kHeaderSize;  // блоки начинаются сразу за заголовком
+}
+
+void IndexingBuilder::writeRaw(std::span<const std::byte> data) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — ostream::write требует const char*
+    out_.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    if (!out_)
+        throw Exception{"store: write failed: " + store_.string()};
+    offset_ += data.size();
+}
+
+void IndexingBuilder::writeTrailer() {
+    // Метаданные: иерархия и геометрия блоков. Без них файл не открыть, поэтому
+    // ошибка записи фатальна.
+    std::vector<std::byte> meta;
+    ByteWriter mw{meta};
+    encodeHierarchy(mw, hierarchy_);
+    index_.encode(mw);
+
+    const std::uint64_t metaOffset = offset_;
+    writeRaw(meta);
+
+    std::vector<std::byte> footer;
+    ByteWriter fw{footer};
+    fw.u64(metaOffset);
+    fw.u64(static_cast<std::uint64_t>(meta.size()));
+    fw.u32(StoreLayout::kFooterMagic);
+    writeRaw(footer);
 }
 
 void IndexingBuilder::valueChange(SignalId id, ValueView value) {
@@ -95,11 +133,7 @@ void IndexingBuilder::flushStream(std::uint32_t sid) {
                     .rawSize = rawSize,
                     .codec = codec});
 
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — ostream::write требует const char*
-    out_.write(reinterpret_cast<const char*>(stored.data()), static_cast<std::streamsize>(stored.size()));
-    if (!out_)
-        throw Exception{"short write to store"};
-    offset_ += stored.size();
+    writeRaw(stored);  // сам двигает offset_ и проверяет поток
 
     buffered_ -= std::min(buffered_, payloadBytes(s.block));
     s.block = DecodedBlock{s.kind, s.width};  // память накопителя возвращается
@@ -141,19 +175,12 @@ void IndexingBuilder::finish() {
     index_.setTimeScale(scale_);
     index_.setTimeRange(firstTime_ == kNoTime ? TimeRange{} : TimeRange{firstTime_, lastTime_ + 1});
 
+    writeTrailer();
+
     out_.flush();
     if (!out_)
         throw Exception{"store flush failed"};
     out_.close();  // до того, как takeDatabase() откроет store на чтение
-
-    // Сайдкар-индекс рядом со store ускорит повторные открытия (не обязателен
-    // для немедленного takeDatabase(), который держит индекс в памяти): ошибку записи
-    // намеренно игнорируем.
-    try {
-        index_.save(sidecarPath());
-    }
-    catch (const Exception&) {  // NOLINT(bugprone-empty-catch) — сайдкар best-effort, ошибку записи игнорируем
-    }
 }
 
 Database IndexingBuilder::takeDatabase() {
@@ -165,12 +192,6 @@ SignalId IndexingBuilder::allocStream(ValueKind kind, std::uint32_t width) {
     const auto id = SignalId{static_cast<std::uint32_t>(streams_.size())};
     streams_.push_back(Stream{DecodedBlock{kind, width}, kind, width});
     return id;
-}
-
-std::filesystem::path IndexingBuilder::sidecarPath() const {
-    std::filesystem::path p = store_;
-    p += ".wsfidx";
-    return p;
 }
 
 }  // namespace WaSafe
