@@ -70,7 +70,7 @@ void writeSmallStore(const std::filesystem::path& path) {
     b->setTime(10);
     b->valueChange(d, v.view());
     b->finish();
-    (void)b->takeDatabase();
+    std::ignore = b->takeDatabase();
 }
 
 /// Прочитать файл целиком.
@@ -447,7 +447,7 @@ TEST(Indexing, ReopenAfterClose) {
         b->setTime(20);
         b->valueChange(d, d1.view());
         b->finish();
-        (void)b->takeDatabase();  // БД тут же уничтожается
+        std::ignore = b->takeDatabase();  // БД тут же уничтожается
     }
 
     const Database db = openStore(tmp.path);

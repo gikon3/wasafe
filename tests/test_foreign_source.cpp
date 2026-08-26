@@ -124,12 +124,12 @@ TEST(ForeignSource, CacheKeepsStreamsApart) {
     auto be = makeBackend(a, b);
 
     EXPECT_EQ(be.source->decodeCalls(), 0);
-    (void)be.storage.valueAt(a, 5);
-    (void)be.storage.valueAt(b, 5);
+    std::ignore = be.storage.valueAt(a, 5);
+    std::ignore = be.storage.valueAt(b, 5);
     EXPECT_EQ(be.source->decodeCalls(), 2);
 
-    (void)be.storage.valueAt(a, 15);
-    (void)be.storage.valueAt(b, 15);
+    std::ignore = be.storage.valueAt(a, 15);
+    std::ignore = be.storage.valueAt(b, 15);
     EXPECT_EQ(be.source->decodeCalls(), 2);  // оба блока уже в кэше
 }
 

@@ -120,7 +120,7 @@ TEST(LazyBackend, CacheAccounting) {
     auto be = makeBackend(s);
 
     EXPECT_EQ(be.cachedBytes(), 0u);
-    (void)be.valueAt(s, 15);
+    std::ignore = be.valueAt(s, 15);
     EXPECT_GT(be.cachedBytes(), 0u);  // блок загружен в кэш
 
     be.release({100, 200});  // ни один блок не пересекает — кэш очищен

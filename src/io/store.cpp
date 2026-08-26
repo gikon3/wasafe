@@ -34,7 +34,7 @@ std::vector<std::byte> readAt(std::ifstream& in, std::uint64_t offset, std::size
 
 }  // namespace
 
-Database openStore(const std::filesystem::path& path) {
+Database openStore(const std::filesystem::path& path, LazyStorageOptions opts) {
     std::ifstream in{path, std::ios::binary | std::ios::ate};
     if (!in)
         throw Exception{"cannot open store: " + path.string()};
@@ -80,7 +80,7 @@ Database openStore(const std::filesystem::path& path) {
     SignalIndex index = SignalIndex::decode(r);
 
     auto source = FileBlockSource::open(path);
-    return Database{std::move(hierarchy), std::make_unique<LazyStorage>(std::move(index), std::move(source))};
+    return Database{std::move(hierarchy), std::make_unique<LazyStorage>(std::move(index), std::move(source), opts)};
 }
 
 }  // namespace WaSafe
