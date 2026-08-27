@@ -74,7 +74,7 @@ std::size_t changeAtOrBefore(const TimeColumn& times, TimeStamp t) noexcept {
 MemoryStorage::Stream::Stream(ValueKind kind, std::uint32_t width) {
     switch (kind) {
         case ValueKind::LOGIC:
-            values_ = LogicStore{width, {}};
+            values_ = LogicStore{width, {}, {}};  // планы наполняются в append
             break;
         case ValueKind::REAL:
             values_ = RealStore{};
