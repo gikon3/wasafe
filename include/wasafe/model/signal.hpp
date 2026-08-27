@@ -77,7 +77,10 @@ public:
     [[nodiscard]] TimeStamp nextChange(TimeStamp after) const;
     [[nodiscard]] TimeStamp prevChange(TimeStamp before) const;
 
-    [[nodiscard]] const Database& database() const noexcept { return *db_; }
+    [[nodiscard]] const Database& database() const {
+        require();
+        return *db_;
+    }
 
     friend bool operator==(const Signal&, const Signal&) = default;
     [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
@@ -90,6 +93,17 @@ private:
 private:
     Signal(const Database* db, NodeId node) noexcept : db_{db}, node_{node} {}
 
+    /// Проверка хэндла на входе публичных методов. Невалидный Signal — штатное
+    /// возвращаемое значение (его отдают child/find/parent), поэтому обращение
+    /// к нему обязано бросать, а не разыменовывать нулевой db_. Быстрый путь
+    /// инлайнится, бросок вынесен в холодную [[noreturn]]-функцию.
+    void require() const {
+        if (!valid())
+            throwInvalid();
+    }
+
+    [[noreturn]] static void throwInvalid();
+
 private:
     const Database* db_ = nullptr;
     NodeId node_;
@@ -99,6 +113,12 @@ private:
 /// индексов узлов — поэтому одинаково обслуживает и дочерние элементы композита
 /// (Hierarchy::SignalNode::children) и сигналы верхнего уровня scope
 /// (Hierarchy::ScopeNode::signals).
+///
+/// Итераторы хэндл НЕ проверяют, в отличие от Signal/Scope, и это осознанно:
+/// диапазон выдают только Signal::children() и Scope::signals(), а они бросают
+/// на невалидном хэндле — получить диапазон над нулевым db_ штатным путём
+/// нельзя. Разыменование же итератора за end() остаётся UB, как у любого
+/// контейнера, и проверка стоила бы на каждой итерации обхода.
 class WASAFE_API SignalChildRange {
 public:
     class Iterator {
