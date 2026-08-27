@@ -18,7 +18,7 @@ void storeLe(std::byte* dst, T v) noexcept {
 }
 
 template <class T>
-[[nodiscard]] inline T loadLe(const std::byte* src) noexcept {
+[[nodiscard]] T loadLe(const std::byte* src) noexcept {
     T v = 0;
     for (std::size_t i = 0; i < sizeof(T); ++i)
         v |= static_cast<T>(static_cast<std::uint8_t>(src[i])) << (i * 8u);
@@ -42,7 +42,7 @@ void writeArray(std::vector<std::byte>& out, std::span<const T> v) {
 }
 
 template <class T, class Raw>
-[[nodiscard]] inline bool readArray(std::span<const std::byte> data, std::size_t& pos, std::span<T> out) noexcept {
+[[nodiscard]] bool readArray(std::span<const std::byte> data, std::size_t& pos, std::span<T> out) noexcept {
     if (out.empty())
         return true;
     const std::size_t bytes = out.size() * sizeof(T);
@@ -60,11 +60,11 @@ template <class T, class Raw>
 }
 
 /// Зигзаг: знак уезжает в младший бит, поэтому -1 стоит один байт, а не десять.
-[[nodiscard]] inline std::uint64_t zigzag(std::int64_t v) noexcept {
+[[nodiscard]] std::uint64_t zigzag(std::int64_t v) noexcept {
     return (static_cast<std::uint64_t>(v) << 1u) ^ static_cast<std::uint64_t>(v >> 63);
 }
 
-[[nodiscard]] inline std::int64_t unzigzag(std::uint64_t v) noexcept {
+[[nodiscard]] std::int64_t unzigzag(std::uint64_t v) noexcept {
     return static_cast<std::int64_t>((v >> 1u) ^ (~(v & 1u) + 1u));
 }
 
@@ -76,7 +76,7 @@ void appendLe(std::vector<std::byte>& out, T v) {
 }
 
 template <class T>
-[[nodiscard]] inline bool takeLe(std::span<const std::byte> data, std::size_t& pos, T& out) noexcept {
+[[nodiscard]] bool takeLe(std::span<const std::byte> data, std::size_t& pos, T& out) noexcept {
     if (pos + sizeof(T) > data.size())
         return false;
     out = loadLe<T>(data.data() + pos);

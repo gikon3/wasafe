@@ -196,7 +196,7 @@ private:
 // ---------------------------------------------------------------------------
 struct EnumEntry {
     std::string name;
-    std::uint64_t value;
+    std::uint64_t value = 0;
 };
 
 class WASAFE_API EnumType final : public TypeDescriptor {

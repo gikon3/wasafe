@@ -221,6 +221,11 @@ std::vector<std::byte> encodeBlock(const DecodedBlock& block) {
     return out;
 }
 
+// Плоский декодер формата: одна ветка на вид записи, внутри «прочитать поля,
+// проверить обрыв». Метрика штрафует switch с такими проверками, но разнесение
+// по функциям на один вызов каждая спрятало бы раскладку формата, а не
+// упростило её.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 DecodedBlock decodeBlock(std::span<const std::byte> raw) {
     ByteReader r{raw};
 

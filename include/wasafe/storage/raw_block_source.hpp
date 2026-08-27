@@ -18,6 +18,8 @@ namespace WaSafe {
 /// структур, без круга через наш формат.
 class WASAFE_API RawBlockSource : public BlockSource {
 public:
+    ~RawBlockSource() override = default;
+
     /// Прочитать и распаковать блок. Возврат — распакованные байты длиной
     /// ref.rawSize. Об ошибках сообщает исключением домена.
     [[nodiscard]] virtual std::vector<std::byte> readBlock(const BlockRef& ref) const = 0;

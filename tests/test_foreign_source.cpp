@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -164,7 +165,7 @@ TEST(ForeignSource, MergedCursorTagsSource) {
     const SignalId b{1};
     auto be = makeBackend(a, b);
 
-    const SignalId ids[] = {a, b};
+    const std::array ids = {a, b};
     auto cur = be.storage.openCursor(ids, {0, 100});
 
     std::vector<std::tuple<TimeStamp, std::size_t, std::string>> got;
