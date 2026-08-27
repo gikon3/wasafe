@@ -1,7 +1,6 @@
 #include "wasafe/types/type.hpp"
 
 #include <algorithm>
-#include <limits>
 
 namespace WaSafe {
 
@@ -32,12 +31,12 @@ std::string_view toString(TypeKind k) noexcept {
 }
 
 // --- StructType -------------------------------------------------------------
-std::size_t StructType::indexOf(std::string_view memberName) const noexcept {
+std::optional<std::size_t> StructType::indexOf(std::string_view memberName) const noexcept {
     for (std::size_t i = 0; i < members_.size(); ++i) {
         if (members_[i].name == memberName)
             return i;
     }
-    return std::numeric_limits<std::size_t>::max();
+    return std::nullopt;
 }
 
 std::uint32_t StructType::bitWidth() const noexcept {
@@ -54,12 +53,12 @@ bool StructType::computeFourState(const std::vector<StructMember>& m) {
 }
 
 // --- EnumType ---------------------------------------------------------------
-std::string_view EnumType::labelOf(std::uint64_t value) const noexcept {
+std::optional<std::string_view> EnumType::labelOf(std::uint64_t value) const noexcept {
     for (const auto& e : entries_) {
         if (e.value == value)
             return e.name;
     }
-    return {};
+    return std::nullopt;
 }
 
 // --- Фабрики (интернирование — TODO; пока просто создают объекты) -----------
