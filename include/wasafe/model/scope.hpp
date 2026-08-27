@@ -77,6 +77,14 @@ private:
 private:
     Scope(const Database* db, ScopeId id) noexcept : db_{db}, id_{id} {}
 
+    /// Проверка хэндла на входе публичных методов.
+    void require() const {
+        if (!valid())
+            throwInvalid();
+    }
+
+    [[noreturn]] static void throwInvalid();
+
 private:
     const Database* db_ = nullptr;
     ScopeId id_;

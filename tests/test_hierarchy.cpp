@@ -303,3 +303,87 @@ TEST(Hierarchy, HandleRelativeLookup) {
     EXPECT_EQ(top->findScope("").id(), top->id());  // пустой путь — сам scope
     EXPECT_FALSE(top->findScope("nope").valid());
 }
+
+// Невалидный хэндл Signal/Scope обязан бросать, а не разыменовывать нулевой
+// db_. Невалидный хэндл — штатное возвращаемое значение (child/find/signal его
+// отдают), поэтому дотянуться до него легко, и молчаливое UB здесь недопустимо.
+TEST(Hierarchy, InvalidSignalHandleThrows) {
+    const Database db = buildNestedDb();
+    const auto regs = db.find("top.cpu.regs");
+    ASSERT_TRUE(regs.has_value());
+
+    // Два пути получения невалидного хэндла: конструктор по умолчанию и
+    // штатный неуспешный поиск.
+    const Signal fromDefault;
+    const Signal fromLookup = regs->find("nope");
+    ASSERT_FALSE(fromDefault.valid());
+    ASSERT_FALSE(fromLookup.valid());
+
+    for (const Signal& bad : {fromDefault, fromLookup}) {
+        // Проверяющие примитивы обязаны работать: на них и держится проверка.
+        EXPECT_NO_THROW((void)bad.valid());
+        EXPECT_NO_THROW((void)bad.node());
+        EXPECT_FALSE(static_cast<bool>(bad));
+
+        EXPECT_THROW((void)bad.name(), Exception);
+        EXPECT_THROW((void)bad.fullPath(), Exception);
+        EXPECT_THROW((void)bad.type(), Exception);
+        EXPECT_THROW((void)bad.kind(), Exception);
+        EXPECT_THROW((void)bad.width(), Exception);
+        EXPECT_THROW((void)bad.isLeaf(), Exception);
+        EXPECT_THROW((void)bad.isComposite(), Exception);
+        EXPECT_THROW((void)bad.hasOwnStream(), Exception);
+        EXPECT_THROW((void)bad.streamId(), Exception);
+        EXPECT_THROW((void)bad.childCount(), Exception);
+        EXPECT_THROW((void)bad.child(0), Exception);
+        EXPECT_THROW((void)bad.child("x"), Exception);
+        EXPECT_THROW((void)bad[0], Exception);
+        EXPECT_THROW((void)bad.find("x"), Exception);
+        EXPECT_THROW((void)bad.parent(), Exception);
+        EXPECT_THROW((void)bad.children(), Exception);
+        EXPECT_THROW((void)bad.database(), Exception);
+        EXPECT_THROW((void)bad.valueAt(0), Exception);
+        EXPECT_THROW((void)bad.changes({0, 10}), Exception);
+        EXPECT_THROW((void)bad.nextChange(0), Exception);
+        EXPECT_THROW((void)bad.prevChange(10), Exception);
+    }
+
+    // Валидный хэндл по-прежнему работает.
+    EXPECT_NO_THROW((void)regs->name());
+    EXPECT_NO_THROW((void)regs->children());
+}
+
+TEST(Hierarchy, InvalidScopeHandleThrows) {
+    const Database db = buildNestedDb();
+    const auto top = db.findScope("top");
+    ASSERT_TRUE(top.has_value());
+
+    const Scope fromDefault;
+    const Scope fromLookup = top->findScope("nope");
+    ASSERT_FALSE(fromDefault.valid());
+    ASSERT_FALSE(fromLookup.valid());
+
+    for (const Scope& bad : {fromDefault, fromLookup}) {
+        EXPECT_NO_THROW((void)bad.valid());
+        EXPECT_NO_THROW((void)bad.id());
+        EXPECT_FALSE(static_cast<bool>(bad));
+
+        EXPECT_THROW((void)bad.name(), Exception);
+        EXPECT_THROW((void)bad.fullPath(), Exception);
+        EXPECT_THROW((void)bad.kind(), Exception);
+        EXPECT_THROW((void)bad.parent(), Exception);
+        EXPECT_THROW((void)bad.scopeCount(), Exception);
+        EXPECT_THROW((void)bad.scope(0), Exception);
+        EXPECT_THROW((void)bad.scope("x"), Exception);
+        EXPECT_THROW((void)bad.scopes(), Exception);
+        EXPECT_THROW((void)bad.signalCount(), Exception);
+        EXPECT_THROW((void)bad.signal(0), Exception);
+        EXPECT_THROW((void)bad.signal("x"), Exception);
+        EXPECT_THROW((void)bad.signals(), Exception);
+        EXPECT_THROW((void)bad.find("x"), Exception);
+        EXPECT_THROW((void)bad.findScope("x"), Exception);
+    }
+
+    EXPECT_NO_THROW((void)top->name());
+    EXPECT_NO_THROW((void)top->signals());
+}
