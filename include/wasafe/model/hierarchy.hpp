@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -82,13 +83,30 @@ public:
 
     /// Поиск сигнала по полному иерархическому пути ("top.u1.data[3].field").
     /// Разбирает '.', индексацию '[i]' и доступ к членам единообразно.
+    /// Частный случай поиска от корня.
     [[nodiscard]] std::optional<NodeId> findSignal(std::string_view path) const;
-    /// Поиск scope по пути.
+    /// Поиск scope по пути. Частный случай поиска от корня.
     [[nodiscard]] std::optional<ScopeId> findScope(std::string_view path) const;
+
+    /// Поиск ОТ УЗЛА-СИГНАЛА: путь из членов и элементов ("hdr.addr[2]").
+    /// Спуска по scope нет — внутри сигнала их не бывает. Пустой путь именует
+    /// сам узел: он уже является сигналом.
+    [[nodiscard]] std::optional<NodeId> findSignal(NodeId from, std::string_view relative) const;
+    /// Поиск ОТ SCOPE: вложенные scope, затем сигнал ("alu.result[3]").
+    /// Пустой путь даёт nullopt — он именует scope, а не сигнал.
+    [[nodiscard]] std::optional<NodeId> findSignal(ScopeId from, std::string_view relative) const;
+    /// Поиск scope ОТ SCOPE. Пустой путь именует сам scope.
+    [[nodiscard]] std::optional<ScopeId> findScope(ScopeId from, std::string_view relative) const;
 
     /// Полный путь до узла.
     [[nodiscard]] std::string pathOf(NodeId node) const;
     [[nodiscard]] std::string pathOf(ScopeId scope) const;
+
+private:
+    /// Спуск от узла по разобранным на '.' сегментам пути: имя члена и/или
+    /// ключи элементов ("[3]") в каждом сегменте. Общая часть всех перегрузок
+    /// поиска — грамматика пути живёт в одном месте.
+    [[nodiscard]] std::optional<NodeId> descend(NodeId node, std::span<const std::string_view> segments) const;
 
 private:
     [[noreturn]] static void throwInvalidScope(ScopeId id, std::size_t count);

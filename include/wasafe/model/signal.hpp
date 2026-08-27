@@ -56,6 +56,10 @@ public:
     [[nodiscard]] Signal child(std::size_t ordinal) const;      ///< i-й член/элемент
     [[nodiscard]] Signal child(std::string_view member) const;  ///< член структуры по имени
     [[nodiscard]] Signal operator[](std::size_t index) const { return child(index); }
+    /// Поиск ОТ ЭТОГО сигнала по относительному пути ("hdr.addr[2]"): члены и
+    /// элементы, грамматика та же, что у Database::find. Пустой путь — сам
+    /// сигнал. Невалидный Signal, если такого пути нет.
+    [[nodiscard]] Signal find(std::string_view relative) const;
     [[nodiscard]] Signal parent() const;              ///< родительский узел (или невалидный)
     [[nodiscard]] SignalChildRange children() const;  ///< для range-based for
 

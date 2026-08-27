@@ -1,9 +1,65 @@
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <tuple>
+#include <vector>
+
 #include "wasafe/core/exception.hpp"
+#include "wasafe/io/builder.hpp"
 #include "wasafe/model/hierarchy.hpp"
+#include "wasafe/storage/database.hpp"
 
 using namespace WaSafe;
+
+namespace {
+
+/// Иерархия для относительного поиска: top.clk и top.cpu с двумя композитами —
+/// regs[0:1].{addr,valid} и двумерным mem[0:1][0:1].
+Hierarchy buildNested() {
+    Hierarchy h;
+    const ScopeId top = h.addScope(h.root(), "top", ScopeKind::MODULE);
+    const ScopeId cpu = h.addScope(top, "cpu", ScopeKind::MODULE);
+    h.addSignal(top, "clk", makeScalar(), SignalId{0});
+
+    const NodeId regs = h.addSignal(cpu, "regs", makeScalar(), SignalId{});
+    for (std::int32_t i = 0; i < 2; ++i) {
+        const NodeId elem = h.addElement(regs, i, makeScalar(), SignalId{});
+        h.addMember(elem, "addr", makeVector(7, 0), SignalId{static_cast<SignalId::ValueType>(2 * i + 1)});
+        h.addMember(elem, "valid", makeScalar(), SignalId{static_cast<SignalId::ValueType>(2 * i + 2)});
+    }
+
+    const NodeId mem = h.addSignal(cpu, "mem", makeScalar(), SignalId{});
+    for (std::int32_t i = 0; i < 2; ++i) {
+        const NodeId row = h.addElement(mem, i, makeScalar(), SignalId{});
+        for (std::int32_t j = 0; j < 2; ++j)
+            h.addElement(row, j, makeScalar(), SignalId{});
+    }
+    return h;
+}
+
+/// Та же форма, но собранная штатным Builder'ом — нужна для хэндлов
+/// Signal/Scope, которым требуется Database.
+Database buildNestedDb() {
+    auto sink = makeMemoryBuilder();
+    sink->setTimeScale({.exponent = -9, .scale = 1});
+
+    sink->beginScope("top", ScopeKind::MODULE);
+    std::ignore = sink->declareVar("clk", makeScalar());
+
+    sink->beginScope("cpu", ScopeKind::MODULE);
+    const Type cellT = makeStruct({{"addr", makeVector(7, 0), 0}, {"valid", makeScalar(), 8}}, /*packed*/ true);
+    const Type regsT = makeArray(cellT, 0, 1, /*packed*/ false);
+    std::vector<SignalId> leaves(expansionStreamCount(regsT));
+    std::ignore = sink->declareVar("regs", regsT, std::nullopt, leaves);
+    sink->endScope();
+
+    sink->endScope();
+    sink->headerDone();
+    sink->finish();
+    return sink->takeDatabase();
+}
+
+}  // namespace
 
 // построение иерархии: scope и сигналы
 TEST(Hierarchy, BuildScopesAndSignals) {
@@ -146,6 +202,11 @@ TEST(Hierarchy, InvalidHandlesThrow) {
     EXPECT_THROW((void)h.pathOf(badScope), Exception);
     EXPECT_THROW((void)h.pathOf(nullScope), Exception);
     EXPECT_THROW((void)h.pathOf(badNode), Exception);
+    // относительный поиск — стартовый хэндл проверяется так же
+    EXPECT_THROW((void)h.findSignal(badNode, "x"), Exception);
+    EXPECT_THROW((void)h.findSignal(badScope, "x"), Exception);
+    EXPECT_THROW((void)h.findScope(badScope, "x"), Exception);
+    EXPECT_THROW((void)h.findScope(nullScope, "x"), Exception);
     // построение — раньше воспринимало родителя на веру (UB)
     EXPECT_THROW((void)h.addScope(badScope, "x", ScopeKind::MODULE), Exception);
     EXPECT_THROW((void)h.addSignal(badScope, "x", makeScalar(), SignalId{}), Exception);
@@ -156,4 +217,89 @@ TEST(Hierarchy, InvalidHandlesThrow) {
     EXPECT_NO_THROW((void)h.scopeNode(top));
     EXPECT_NO_THROW((void)h.signalNode(sig));
     EXPECT_EQ(h.pathOf(sig), "top.sig");
+}
+
+// Относительный поиск от узла-сигнала: путь из членов и элементов.
+TEST(Hierarchy, FindSignalRelativeToNode) {
+    const Hierarchy h = buildNested();
+    const auto regs = h.findSignal("top.cpu.regs");
+    ASSERT_TRUE(regs.has_value());
+
+    EXPECT_EQ(h.findSignal(*regs, "[1].valid"), h.findSignal("top.cpu.regs[1].valid"));
+    EXPECT_EQ(h.findSignal(*regs, "[0]"), h.findSignal("top.cpu.regs[0]"));
+
+    // Грамматика та же, что у абсолютного пути: пробелы внутри скобок
+    // нормализуются, несколько индексов в одном сегменте разбираются подряд.
+    EXPECT_EQ(h.findSignal(*regs, "[ 1 ].valid"), h.findSignal("top.cpu.regs[1].valid"));
+    const auto mem = h.findSignal("top.cpu.mem");
+    ASSERT_TRUE(mem.has_value());
+    EXPECT_EQ(h.findSignal(*mem, "[1][0]"), h.findSignal("top.cpu.mem[1][0]"));
+
+    // Пустой путь именует сам узел — он и есть сигнал.
+    EXPECT_EQ(h.findSignal(*regs, ""), regs);
+
+    EXPECT_FALSE(h.findSignal(*regs, "[5]").has_value());       // нет такого элемента
+    EXPECT_FALSE(h.findSignal(*regs, "[0].nope").has_value());  // нет такого члена
+    EXPECT_FALSE(h.findSignal(*regs, "cpu").has_value());       // спуска по scope от сигнала нет
+}
+
+// Относительный поиск от scope: вложенные scope, затем сигнал.
+TEST(Hierarchy, FindSignalRelativeToScope) {
+    const Hierarchy h = buildNested();
+    const auto top = h.findScope("top");
+    ASSERT_TRUE(top.has_value());
+
+    EXPECT_EQ(h.findSignal(*top, "clk"), h.findSignal("top.clk"));
+    EXPECT_EQ(h.findSignal(*top, "cpu.regs[1].addr"), h.findSignal("top.cpu.regs[1].addr"));
+
+    // Пустой путь именует scope, а не сигнал.
+    EXPECT_FALSE(h.findSignal(*top, "").has_value());
+    EXPECT_FALSE(h.findSignal(*top, "nope").has_value());
+    EXPECT_FALSE(h.findSignal(*top, "cpu").has_value());  // это scope, а не сигнал
+
+    // Абсолютная перегрузка — частный случай поиска от корня.
+    EXPECT_EQ(h.findSignal(h.root(), "top.cpu.regs[0].valid"), h.findSignal("top.cpu.regs[0].valid"));
+}
+
+// Относительный поиск scope от scope.
+TEST(Hierarchy, FindScopeRelativeToScope) {
+    const Hierarchy h = buildNested();
+    const auto top = h.findScope("top");
+    ASSERT_TRUE(top.has_value());
+
+    EXPECT_EQ(h.findScope(*top, "cpu"), h.findScope("top.cpu"));
+    EXPECT_EQ(h.findScope(*top, ""), top);  // пустой путь — сам scope
+    EXPECT_FALSE(h.findScope(*top, "nope").has_value());
+    EXPECT_EQ(h.findScope(h.root(), "top.cpu"), h.findScope("top.cpu"));
+}
+
+// Хэндлы: Signal::find, Scope::find, Scope::findScope.
+TEST(Hierarchy, HandleRelativeLookup) {
+    const Database db = buildNestedDb();
+
+    const auto regs = db.find("top.cpu.regs");
+    ASSERT_TRUE(regs.has_value());
+
+    const Signal valid = regs->find("[1].valid");
+    ASSERT_TRUE(valid.valid());
+    EXPECT_EQ(valid.fullPath(), "top.cpu.regs[1].valid");
+
+    // Эквивалентно абсолютному поиску по собранному пути, но без сборки строки.
+    const auto absolute = db.find("top.cpu.regs[1].valid");
+    ASSERT_TRUE(absolute.has_value());
+    EXPECT_EQ(valid.node(), absolute->node());
+    EXPECT_EQ(valid, *absolute);
+
+    EXPECT_FALSE(regs->find("[5]").valid());
+    EXPECT_EQ(regs->find("").node(), regs->node());  // пустой путь — сам сигнал
+
+    const auto top = db.findScope("top");
+    ASSERT_TRUE(top.has_value());
+    EXPECT_EQ(top->find("cpu.regs[0].addr").fullPath(), "top.cpu.regs[0].addr");
+    EXPECT_FALSE(top->find("").valid());  // пустой путь именует scope, а не сигнал
+    EXPECT_FALSE(top->find("cpu").valid());
+
+    EXPECT_EQ(top->findScope("cpu").fullPath(), "top.cpu");
+    EXPECT_EQ(top->findScope("").id(), top->id());  // пустой путь — сам scope
+    EXPECT_FALSE(top->findScope("nope").valid());
 }
