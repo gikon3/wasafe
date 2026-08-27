@@ -33,8 +33,8 @@ class ArrayType {
     - packed_ : bool
     + elementType() : Type
     + elementCount() : size_t
-    + ordinalOf(index) : size_t
-    + indexOf(ordinal) : int32_t
+    + ordinalOf(index) : optional<size_t>
+    + indexOf(ordinal) : optional<int32_t>
     note: многомерность — вложением\n logic[7:0] m[0:3][0:1]\n = Array{0:3, Array{0:1, Vector[7:0]}}
 }
 
@@ -43,14 +43,14 @@ class StructType {
     - packed_ : bool
     + members() : span<StructMember>
     + elementCount() : size_t
-    + indexOf(name) : size_t
+    + indexOf(name) : optional<size_t>
     + bitWidth() : sum of members
 }
 
 class EnumType {
     - base_ : Type
     - entries_ : vector<EnumEntry>
-    + labelOf(value) : string_view
+    + labelOf(value) : optional<string_view>
 }
 
 class RealType {

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -122,16 +123,32 @@ public:
     [[nodiscard]] std::int32_t indexRight() const noexcept { return right_; }
     [[nodiscard]] bool packed() const noexcept { return packed_; }
 
+    /// Арифметика краёв — в int64: разность двух int32 переполняет знаковый тип
+    /// на вырожденных диапазонах вроде [INT32_MAX : INT32_MIN], а это UB.
     [[nodiscard]] std::size_t elementCount() const noexcept override {
-        return static_cast<std::size_t>(left_ >= right_ ? left_ - right_ : right_ - left_) + 1;
+        const std::int64_t span =
+                left_ >= right_ ? static_cast<std::int64_t>(left_) - right_ : static_cast<std::int64_t>(right_) - left_;
+        return static_cast<std::size_t>(span) + 1;
     }
-    /// Преобразование логического индекса массива в порядковый (0..count-1).
-    [[nodiscard]] std::size_t ordinalOf(std::int32_t index) const noexcept {
-        return static_cast<std::size_t>(left_ >= right_ ? left_ - index : index - left_);
+
+    /// Преобразование логического индекса массива в порядковый (0..count-1);
+    /// nullopt, если индекс не принадлежит диапазону массива. Отдельная проверка
+    /// вхождения не нужна: попадание порядкового в [0, count) ей равносильно.
+    [[nodiscard]] std::optional<std::size_t> ordinalOf(std::int32_t index) const noexcept {
+        const std::int64_t ordinal =
+                left_ >= right_ ? static_cast<std::int64_t>(left_) - index : static_cast<std::int64_t>(index) - left_;
+        if (ordinal < 0 || static_cast<std::uint64_t>(ordinal) >= static_cast<std::uint64_t>(elementCount()))
+            return std::nullopt;
+        return static_cast<std::size_t>(ordinal);
     }
-    [[nodiscard]] std::int32_t indexOf(std::size_t ordinal) const noexcept {
-        return left_ >= right_ ? left_ - static_cast<std::int32_t>(ordinal)
-                               : left_ + static_cast<std::int32_t>(ordinal);
+
+    /// Обратное преобразование; nullopt, если порядковый вне числа элементов.
+    /// После проверки результат гарантированно лежит между краями, то есть в int32.
+    [[nodiscard]] std::optional<std::int32_t> indexOf(std::size_t ordinal) const noexcept {
+        if (ordinal >= elementCount())
+            return std::nullopt;
+        const std::int64_t off = static_cast<std::int64_t>(ordinal);
+        return static_cast<std::int32_t>(left_ >= right_ ? left_ - off : left_ + off);
     }
 
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override {
@@ -163,8 +180,8 @@ public:
     [[nodiscard]] bool packed() const noexcept { return packed_; }
     [[nodiscard]] std::size_t elementCount() const noexcept override { return members_.size(); }
 
-    /// Поиск члена по имени; индекс или std::numeric_limits<std::size_t>::max().
-    [[nodiscard]] std::size_t indexOf(std::string_view memberName) const noexcept;
+    /// Поиск члена по имени; nullopt, если члена с таким именем нет.
+    [[nodiscard]] std::optional<std::size_t> indexOf(std::string_view memberName) const noexcept;
 
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override;
 
@@ -191,8 +208,9 @@ public:
     [[nodiscard]] const Type& base() const noexcept { return base_; }
     [[nodiscard]] std::span<const EnumEntry> entries() const noexcept { return entries_; }
     [[nodiscard]] std::uint32_t bitWidth() const noexcept override { return base_ ? base_->bitWidth() : 0; }
-    /// Символьное имя для значения (пустое, если не найдено).
-    [[nodiscard]] std::string_view labelOf(std::uint64_t value) const noexcept;
+    /// Символьное имя для значения; nullopt, если константы с таким значением нет.
+    /// Пустой string_view — это метка с пустым именем, а не её отсутствие.
+    [[nodiscard]] std::optional<std::string_view> labelOf(std::uint64_t value) const noexcept;
 
 private:
     Type base_;
