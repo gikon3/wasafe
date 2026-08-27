@@ -101,13 +101,20 @@ class LogicVector <<владеющий>> {
     + operator LogicVectorView()
 }
 
+enum Radix {
+    BIN
+    OCT
+    DEC
+    HEX
+}
+
 class LogicVectorView <<невладеющий>> {
     - a_ / b_ : const uint64_t*
     - width_  : uint32_t
     + operator[](bit) : Logic
     + isTwoState() : bool
     + toUint64() : optional<uint64_t>
-    + toString() : string
+    + toString(radix = BIN, isSigned = false) : string
     + aval() / bval() : span<const uint64_t>
     + {static} wordsFor(width) : uint32_t
     note right

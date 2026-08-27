@@ -119,7 +119,9 @@ public:
 
     [[nodiscard]] Logic get(std::uint32_t bit) const noexcept { return view()[bit]; }
     [[nodiscard]] bool isTwoState() const noexcept { return view().isTwoState(); }
-    [[nodiscard]] std::string toString() const { return view().toString(); }
+    [[nodiscard]] std::string toString(Radix radix = Radix::BIN, bool isSigned = false) const {
+        return view().toString(radix, isSigned);
+    }
     [[nodiscard]] std::optional<std::uint64_t> toUint64() const noexcept { return view().toUint64(); }
 
     [[nodiscard]] Logic operator[](std::uint32_t bit) const noexcept { return view()[bit]; }
