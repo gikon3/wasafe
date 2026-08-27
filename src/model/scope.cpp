@@ -105,6 +105,16 @@ SignalChildRange Scope::signals() const {
     return {db_, n.signals.data(), n.signals.size()};
 }
 
+Signal Scope::find(std::string_view relative) const {
+    const auto node = db_->hierarchy().findSignal(id_, relative);
+    return node.has_value() ? db_->signalHandle(*node) : Signal{};
+}
+
+Scope Scope::findScope(std::string_view relative) const {
+    const auto scope = db_->hierarchy().findScope(id_, relative);
+    return scope.has_value() ? db_->scopeHandle(*scope) : Scope{};
+}
+
 // --- ScopeRange::iterator ---------------------------------------------------
 Scope ScopeRange::Iterator::operator*() const {
     const auto& n = db_->hierarchy().scopeNode(parent_);

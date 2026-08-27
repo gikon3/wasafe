@@ -69,6 +69,11 @@ Signal Signal::child(std::string_view member) const {
     return {};
 }
 
+Signal Signal::find(std::string_view relative) const {
+    const auto node = db_->hierarchy().findSignal(node_, relative);
+    return node.has_value() ? db_->signalHandle(*node) : Signal{};
+}
+
 Signal Signal::parent() const {
     const auto p = nodeOf(*db_, node_).parent;
     return p.valid() ? db_->signalHandle(p) : Signal{};

@@ -51,6 +51,10 @@ class Hierarchy {
     + signalNode(i) : const SignalNode&
     + findSignal(path) : optional<NodeId>
     + findScope(path)  : optional<ScopeId>
+    + findSignal(NodeId from, rel)  : optional<NodeId>
+    + findSignal(ScopeId from, rel) : optional<NodeId>
+    + findScope(ScopeId from, rel)  : optional<ScopeId>
+    - descend(node, segments) : optional<NodeId>
     + pathOf(NodeId) : string
     + pathOf(ScopeId)   : string
 }
@@ -84,6 +88,7 @@ class Signal <<handle>> {
     + child(ordinal) : Signal
     + child(name)    : Signal
     + operator[](i)  : Signal
+    + find(relative) : Signal
     + parent()       : Signal
     + children()     : SignalChildRange
     --
@@ -112,6 +117,9 @@ class Scope <<handle>> {
     + signal(index)   : Signal
     + signal(name)    : Signal
     + signals()       : SignalChildRange
+    --
+    + find(relative)      : Signal
+    + findScope(relative) : Scope
 }
 
 class SignalChildRange <<range>> {

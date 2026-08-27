@@ -60,6 +60,14 @@ public:
     [[nodiscard]] Signal signal(std::string_view name) const;
     [[nodiscard]] SignalChildRange signals() const;
 
+    // Поиск по относительному пути (грамматика та же, что у Database::find).
+    /// Сигнал по пути от этого scope ("alu.result[3]"): вложенные scope, затем
+    /// сигнал. Пустой путь именует scope, а не сигнал, поэтому даёт невалидный
+    /// Signal — как и любой ненайденный путь.
+    [[nodiscard]] Signal find(std::string_view relative) const;
+    /// Вложенный scope по пути от этого scope; пустой путь — сам scope.
+    [[nodiscard]] Scope findScope(std::string_view relative) const;
+
     friend bool operator==(const Scope&, const Scope&) = default;
     [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
 

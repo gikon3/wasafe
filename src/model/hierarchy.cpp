@@ -133,45 +133,11 @@ NodeId Hierarchy::addElement(NodeId parent, std::int32_t index, Type type, Signa
     return addMember(parent, std::format("[{}]", index), std::move(type), stream, projection);
 }
 
-std::optional<NodeId> Hierarchy::findSignal(std::string_view path) const {
-    if (path.empty())
-        return std::nullopt;
-    const auto segs = splitDots(path);
+std::optional<NodeId> Hierarchy::descend(NodeId node, std::span<const std::string_view> segments) const {
+    for (const auto seg : segments) {
+        const Segment s = parseSegment(seg);
 
-    // Фаза 1: спуск по scope. Полный текст сегмента сопоставляется с дочерним
-    // scope (имя scope может содержать скобки, напр. "gen[0]"). Последний сегмент
-    // обязан быть сигналом, поэтому в scope его не разрешаем.
-    ScopeId scope = kRootId;
-    std::size_t idx = 0;
-    for (; idx + 1 < segs.size(); ++idx) {
-        const auto& sc = scopes_[scope.get()];
-        const auto it = sc.scopeIndex.find(segs[idx]);
-        if (it == sc.scopeIndex.end())
-            break;
-        scope = it->second;
-    }
-    if (idx >= segs.size())
-        return std::nullopt;
-
-    // Фаза 2: первый сигнальный сегмент ищется в signal_index текущего scope,
-    // затем его индексы — в member_index (элементы массива).
-    const Segment first = parseSegment(segs[idx]);
-    const auto& sc = scopes_[scope.get()];
-    const auto sit = sc.signalIndex.find(first.name);
-    if (sit == sc.signalIndex.end())
-        return std::nullopt;
-    NodeId node = sit->second;
-    for (const auto& key : first.indices) {
-        const auto it = nodes_[node.get()].memberIndex.find(key);
-        if (it == nodes_[node.get()].memberIndex.end())
-            return std::nullopt;
-        node = it->second;
-    }
-    ++idx;
-
-    // Фаза 3: оставшиеся сегменты — члены структуры / элементы массива.
-    for (; idx < segs.size(); ++idx) {
-        const Segment s = parseSegment(segs[idx]);
+        // Имя может быть пустым: сегмент вида "[3]" несёт только индексы.
         if (!s.name.empty()) {
             const auto it = nodes_[node.get()].memberIndex.find(s.name);
             if (it == nodes_[node.get()].memberIndex.end())
@@ -188,12 +154,66 @@ std::optional<NodeId> Hierarchy::findSignal(std::string_view path) const {
     return node;
 }
 
+std::optional<NodeId> Hierarchy::findSignal(std::string_view path) const {
+    return findSignal(kRootId, path);
+}
+
+std::optional<NodeId> Hierarchy::findSignal(NodeId from, std::string_view relative) const {
+    requireNode(from);
+    if (relative.empty())
+        return from;  // «здесь» внутри сигнала — сам сигнал
+    return descend(from, splitDots(relative));
+}
+
+std::optional<NodeId> Hierarchy::findSignal(ScopeId from, std::string_view relative) const {
+    requireScope(from);
+    if (relative.empty())
+        return std::nullopt;  // пустой путь именует scope, а сигнала здесь нет
+    const auto segs = splitDots(relative);
+
+    // Фаза 1: спуск по scope. Полный текст сегмента сопоставляется с дочерним
+    // scope (имя scope может содержать скобки, напр. "gen[0]"). Последний сегмент
+    // обязан быть сигналом, поэтому в scope его не разрешаем.
+    ScopeId scope = from;
+    std::size_t idx = 0;
+    for (; idx + 1 < segs.size(); ++idx) {
+        const auto& sc = scopes_[scope.get()];
+        const auto it = sc.scopeIndex.find(segs[idx]);
+        if (it == sc.scopeIndex.end())
+            break;
+        scope = it->second;
+    }
+    if (idx >= segs.size())
+        return std::nullopt;
+
+    // Фаза 2: первый сигнальный сегмент ищется в signalIndex текущего scope.
+    const Segment first = parseSegment(segs[idx]);
+    const auto& sc = scopes_[scope.get()];
+    const auto sit = sc.signalIndex.find(first.name);
+    if (sit == sc.signalIndex.end())
+        return std::nullopt;
+
+    // Фаза 3: индексы первого сегмента и все следующие сегменты — общий спуск.
+    // Хвост "regs[1][2]" без имени сам является сегментом только из индексов,
+    // поэтому отдельной ветки под них не нужно.
+    const std::string_view firstIndices = segs[idx].substr(first.name.size());
+    const auto base = descend(sit->second, {&firstIndices, 1});
+    if (!base.has_value())
+        return std::nullopt;
+    return descend(*base, std::span{segs}.subspan(idx + 1));
+}
+
 std::optional<ScopeId> Hierarchy::findScope(std::string_view path) const {
-    ScopeId scope = kRootId;
-    if (path.empty())
+    return findScope(kRootId, path);
+}
+
+std::optional<ScopeId> Hierarchy::findScope(ScopeId from, std::string_view relative) const {
+    requireScope(from);
+    ScopeId scope = from;
+    if (relative.empty())
         return scope;
 
-    for (const auto seg : splitDots(path)) {
+    for (const auto seg : splitDots(relative)) {
         const auto& sc = scopes_[scope.get()];
         const auto it = sc.scopeIndex.find(seg);
         if (it == sc.scopeIndex.end())
