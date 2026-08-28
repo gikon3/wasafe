@@ -108,7 +108,11 @@ void BaseBuilder::buildChildren(NodeId parent, const Type& type, SignalId owning
         const std::size_t count = at->elementCount();
         const std::uint32_t ew = elem ? elem->bitWidth() : 0;
         for (std::size_t ord = 0; ord < count; ++ord) {
-            const std::int32_t index = *at->indexOf(ord);  // ord < elementCount() по условию цикла
+            // value(), а не *: диапазон доказуем по условию цикла (ord < elementCount()),
+            // но бросок дешевле UB, если инвариант когда-нибудь сломают. Проверка
+            // считает непроверенным доступом и value() тоже, а доказать ей ограниченность ord нечем.
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+            const std::int32_t index = at->indexOf(ord).value();
             if (packed) {
                 const std::uint32_t off = base + static_cast<std::uint32_t>(count - 1 - ord) * ew;
                 const NodeId child = hierarchy_.addElement(parent, index, elem, SignalId{}, BitSlice{off, ew});

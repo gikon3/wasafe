@@ -39,6 +39,34 @@ if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib)
 
     include(CTest)
+
+    # Предупреждения — только в собственной сборке. Потребитель, подключивший
+    # проект через add_subdirectory, имеет своё представление о строгости, а
+    # add_compile_options действует на каталог и ниже, не уезжая в usage
+    # requirements цели.
+    #
+    # Кому нужна сборка строже, передаёт флаг снаружи: CXXFLAGS=-Werror
+    # либо -DCMAKE_CXX_FLAGS=-Werror.
+    #
+    # -Wconversion/-Wsign-conversion нет намеренно. Они требуют ручных
+    # static_cast, которые глушат предупреждение, но не убирают переполнение.
+    if(MSVC)
+        add_compile_options(/W4)
+    else()
+        add_compile_options(
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wshadow
+            -Wnon-virtual-dtor
+            -Woverloaded-virtual
+            -Wold-style-cast
+            -Wcast-align
+            -Wnull-dereference
+            -Wdouble-promotion
+            -Wformat=2
+            -Wimplicit-fallthrough)
+    endif()
 endif()
 
 include(GNUInstallDirs)

@@ -228,7 +228,7 @@ TEST(Logic, RadixDecimal) {
     pos.assignFromUint64(0x7F);
     EXPECT_EQ(pos.toString(Radix::DEC, true), "127");  // знаковый бит не выставлен
 
-    LogicVector zero(8);
+    const LogicVector zero(8);
     EXPECT_EQ(zero.toString(Radix::DEC), "0");
     EXPECT_EQ(zero.toString(Radix::DEC, true), "0");
 
@@ -291,10 +291,14 @@ TEST(Logic, RadixUnknownThrows) {
     LogicVector v(4);
     v.assignFromChars("1010");
 
+    // Значение вне Radix здесь и есть предмет проверки: анализатор прав по
+    // существу, но ровно эту ситуацию тест и воспроизводит.
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     EXPECT_THROW((void)v.toString(static_cast<Radix>(99)), Exception);
     EXPECT_NO_THROW((void)v.toString(Radix::HEX));
 
     // Нулевая ширина отсекается раньше switch — там броска нет.
     const LogicVector empty;
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     EXPECT_NO_THROW((void)empty.toString(static_cast<Radix>(99)));
 }

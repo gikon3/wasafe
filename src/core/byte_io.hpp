@@ -44,6 +44,11 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return out_.size(); }
 
 private:
+    // ByteWriter короткоживущий и привязан к буферу вызывающего: в контейнер не
+    // кладётся и не переприсваивается, поэтому терять value-семантику нечего.
+    // Ссылка, а не указатель: нулевого и перевязываемого состояния у него быть
+    // не должно.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     std::vector<std::byte>& out_;
 };
 

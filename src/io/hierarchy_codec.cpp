@@ -127,6 +127,11 @@ private:
 };
 
 /// Прочитать таблицу типов. types[0] всегда пустой Type.
+// Плоский декодер формата: одна ветка на вид записи, внутри «прочитать поля,
+// проверить обрыв». Метрика штрафует switch с такими проверками, но разнесение
+// по функциям на один вызов каждая спрятало бы раскладку формата, а не
+// упростило её.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 std::vector<Type> readTypes(ByteReader& r) {
     std::uint32_t count = 0;
     if (!r.u32(count))
@@ -266,6 +271,11 @@ void encodeHierarchy(ByteWriter& w, const Hierarchy& h) {
     }
 }
 
+// Плоский декодер формата: одна ветка на вид записи, внутри «прочитать поля,
+// проверить обрыв». Метрика штрафует switch с такими проверками, но разнесение
+// по функциям на один вызов каждая спрятало бы раскладку формата, а не
+// упростило её.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Hierarchy decodeHierarchy(ByteReader& r) {
     const std::vector<Type> types = readTypes(r);
 
