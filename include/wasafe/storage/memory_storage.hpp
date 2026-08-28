@@ -19,6 +19,10 @@ namespace WaSafe {
 /// Внутреннее представление — поколоночное: для каждого потока массив меток
 /// времени и плотно упакованные значения (битовые планы для logic, double для
 /// real, арена для строк). Это даёт быстрый бинарный поиск по времени.
+///
+/// После наполнения значения только читаются, поэтому duplicate() их не
+/// копирует, а разделяет: дубликат обходится в один объект, независимо от
+/// размера дампа.
 class WASAFE_API MemoryStorage final : public Storage {
 public:
     // Storage
@@ -33,7 +37,12 @@ public:
     // объявление override одиночной скрыло бы её при поиске имени.
     using Storage::openCursor;
 
+    /// Значения разделяются: дубликат — лёгкий объект поверх тех же потоков.
+    [[nodiscard]] std::unique_ptr<Storage> duplicate() const override;
+
     // --- наполнение (вызывается из MemoryBuilder) ---------------------------
+    // Только до первого duplicate(): после него потоки разделяются, и запись
+    // увидели бы все дубликаты сразу.
     void setTimeScale(TimeScale s) { timeScale_ = s; }
     void reserveStreams(std::size_t n);
     /// Зарегистрировать поток заданной ширины (0 — real/string).
@@ -81,7 +90,8 @@ private:
     [[nodiscard]] const Stream* stream(SignalId id) const noexcept;
 
 private:
-    std::vector<Stream> streams_;
+    /// Неизменяемы после наполнения, поэтому дубликаты их разделяют.
+    std::shared_ptr<std::vector<Stream>> streams_{std::make_shared<std::vector<Stream>>()};
     TimeRange timeRange_{};
     TimeScale timeScale_{};
 };

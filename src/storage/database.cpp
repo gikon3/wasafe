@@ -104,26 +104,41 @@ Value materialize(ValueView v) {
 }  // namespace
 
 Database::Database(Hierarchy hierarchy, std::unique_ptr<Storage> storage) :
+        Database{std::make_shared<const Hierarchy>(std::move(hierarchy)), std::move(storage)} {
+}
+
+Database::Database(std::shared_ptr<const Hierarchy> hierarchy, std::unique_ptr<Storage> storage) :
         hierarchy_{std::move(hierarchy)}, storage_{std::move(storage)} {
 }
 
+void Database::throwMovedFrom() {
+    throw Exception{"database: обращение к перемещённой Database"};
+}
+
+Database Database::duplicate() const {
+    auto storage = storage_->duplicate();
+    if (!storage)
+        throw Exception{"database: storage does not support duplication"};
+    return Database{hierarchy_, std::move(storage)};
+}
+
 Scope Database::root() const {
-    return scopeHandle(hierarchy_.root());
+    return scopeHandle(hierarchy().root());
 }
 
 std::optional<Signal> Database::find(std::string_view path) const {
-    const auto node = hierarchy_.findSignal(path);
+    const auto node = hierarchy().findSignal(path);
     return node ? std::optional{signalHandle(*node)} : std::nullopt;
 }
 
 std::optional<Scope> Database::findScope(std::string_view path) const {
-    const auto id = hierarchy_.findScope(path);
+    const auto id = hierarchy().findScope(path);
     return id ? std::optional{scopeHandle(*id)} : std::nullopt;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion) — обход дерева композита по определению рекурсивен
 Value Database::valueAt(NodeId id, TimeStamp timestamp) const {
-    const auto& node = hierarchy_.signalNode(id);
+    const auto& node = hierarchy().signalNode(id);
 
     // Композит: значение собирается из детей независимо от того, есть ли у узла
     // собственный поток (packed-структура хранится одним вектором, но наружу
@@ -142,7 +157,7 @@ Value Database::valueAt(NodeId id, TimeStamp timestamp) const {
         const NodeId anc = owningAncestor(id);
         if (!anc.valid())
             return {};
-        auto cut = sliceAt(hierarchy_.signalNode(anc).stream, *node.projection, timestamp);
+        auto cut = sliceAt(hierarchy().signalNode(anc).stream, *node.projection, timestamp);
         return cut ? Value{std::move(*cut)} : Value{};
     }
 
@@ -157,13 +172,13 @@ std::unique_ptr<Cursor> Database::openNodeCursor(NodeId id, TimeRange range) con
     // Packed-член: изменения — это моменты, когда менялся ЕГО срез потока предка,
     // а не все изменения этого потока. Композит (даже packed) идёт общим путём
     // через детей — как и valueAt, отдающий для него агрегат.
-    if (const auto& node = hierarchy_.signalNode(id);
+    if (const auto& node = hierarchy().signalNode(id);
             node.projection && node.children.empty() && !node.stream.valid()) {
         const NodeId anc = owningAncestor(id);
         if (!anc.valid())
             return nullptr;
 
-        const SignalId stream = hierarchy_.signalNode(anc).stream;
+        const SignalId stream = hierarchy().signalNode(anc).stream;
         const BitSlice slice = *node.projection;
         // Значение, перенесённое в окно: последнее изменение предка ДО range.begin.
         std::optional<LogicVector> carryIn;
@@ -203,7 +218,7 @@ ValueCursor Database::changes(std::span<const NodeId> nodes, TimeRange range) co
 
     for (std::uint32_t i = 0; i < nodes.size(); ++i) {
         const NodeId id = nodes[i];
-        if (const SignalId stream = hierarchy_.signalNode(id).stream; stream.valid()) {
+        if (const SignalId stream = hierarchy().signalNode(id).stream; stream.valid()) {
             streams.push_back(stream);
             streamMap.push_back(i);
             continue;
@@ -230,7 +245,7 @@ ValueCursor Database::changes(std::span<const NodeId> nodes, TimeRange range) co
 
 // NOLINTNEXTLINE(misc-no-recursion) — обход дерева композита по определению рекурсивен
 TimeStamp Database::nextChange(NodeId id, TimeStamp after) const {
-    const auto& node = hierarchy_.signalNode(id);
+    const auto& node = hierarchy().signalNode(id);
     if (node.stream.valid())
         return storage_->nextChange(node.stream, after);
 
@@ -242,7 +257,7 @@ TimeStamp Database::nextChange(NodeId id, TimeStamp after) const {
         if (!anc.valid())
             return kNoTime;
 
-        const SignalId stream = hierarchy_.signalNode(anc).stream;
+        const SignalId stream = hierarchy().signalNode(anc).stream;
         const BitSlice slice = *node.projection;
         std::optional<LogicVector> prev = sliceAt(stream, slice, after);
         for (TimeStamp t = storage_->nextChange(stream, after); t != kNoTime; t = storage_->nextChange(stream, t)) {
@@ -266,7 +281,7 @@ TimeStamp Database::nextChange(NodeId id, TimeStamp after) const {
 
 // NOLINTNEXTLINE(misc-no-recursion) — обход дерева композита по определению рекурсивен
 TimeStamp Database::prevChange(NodeId id, TimeStamp before) const {
-    const auto& node = hierarchy_.signalNode(id);
+    const auto& node = hierarchy().signalNode(id);
     if (node.stream.valid())
         return storage_->prevChange(node.stream, before);
 
@@ -277,7 +292,7 @@ TimeStamp Database::prevChange(NodeId id, TimeStamp before) const {
         if (!anc.valid())
             return kNoTime;
 
-        const SignalId stream = hierarchy_.signalNode(anc).stream;
+        const SignalId stream = hierarchy().signalNode(anc).stream;
         const BitSlice slice = *node.projection;
         TimeStamp t = storage_->prevChange(stream, before);
         std::optional<LogicVector> cur = t == kNoTime ? std::nullopt : sliceAt(stream, slice, t);
@@ -314,9 +329,9 @@ Scope Database::scopeHandle(ScopeId id) const {
 }
 
 NodeId Database::owningAncestor(NodeId id) const {
-    NodeId anc = hierarchy_.signalNode(id).parent;
-    while (anc.valid() && !hierarchy_.signalNode(anc).stream.valid())
-        anc = hierarchy_.signalNode(anc).parent;
+    NodeId anc = hierarchy().signalNode(id).parent;
+    while (anc.valid() && !hierarchy().signalNode(anc).stream.valid())
+        anc = hierarchy().signalNode(anc).parent;
     return anc;
 }
 
@@ -332,7 +347,7 @@ std::optional<LogicVector> Database::sliceAt(SignalId stream, BitSlice slice, Ti
 
 // NOLINTNEXTLINE(misc-no-recursion) — обход дерева композита по определению рекурсивен
 void Database::collectLeafStreams(NodeId id, std::vector<SignalId>& out) const {
-    const auto& node = hierarchy_.signalNode(id);
+    const auto& node = hierarchy().signalNode(id);
     if (node.stream.valid()) {
         out.push_back(node.stream);
         return;
@@ -348,7 +363,7 @@ void Database::collectLeafNodes(NodeId id, std::vector<NodeId>& out) const {
     // обещание changes(NodeId) о том, что source — индекс в leafNodes(id).
     // Поэтому лист без собственного потока сюда не попадает: он не даёт потока,
     // а значит и ни одного изменения в слиянии.
-    const auto& node = hierarchy_.signalNode(id);
+    const auto& node = hierarchy().signalNode(id);
     if (node.stream.valid()) {
         out.push_back(id);
         return;
@@ -360,7 +375,7 @@ void Database::collectLeafNodes(NodeId id, std::vector<NodeId>& out) const {
 
 // NOLINTNEXTLINE(misc-no-recursion) — обход дерева scope по определению рекурсивен
 void Database::collectLeafNodes(ScopeId scope, std::vector<NodeId>& out) const {
-    const auto& node = hierarchy_.scopeNode(scope);
+    const auto& node = hierarchy().scopeNode(scope);
     for (const auto sig : node.signals)
         collectLeafNodes(sig, out);
     for (const auto child : node.childScopes)

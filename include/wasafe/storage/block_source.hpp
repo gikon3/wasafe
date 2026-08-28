@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 #include "wasafe/core/ids.hpp"
 #include "wasafe/core/time.hpp"
@@ -41,6 +42,16 @@ public:
     /// несёт изменения нескольких потоков и offset у их блоков общий; то, что
     /// влезает в 64 бита, можно вместо этого возить в ref.cookie.
     [[nodiscard]] virtual DecodedBlock decode(SignalId id, const BlockRef& ref) const = 0;
+
+    /// Второй НЕЗАВИСИМЫЙ доступ к тем же данным — как dup(2) для дескриптора.
+    /// Состояние НЕ копируется: FileBlockSource открывает файл заново, а не
+    /// дублирует позицию своего ifstream. Нужно, чтобы БД, размноженная по
+    /// потокам, читала байты без всякой синхронизации; неизменяемое (блоки в
+    /// ОЗУ) при этом разделяется.
+    ///
+    /// nullptr по умолчанию — источник размножения не поддерживает, и БД поверх
+    /// него не дублируется (Database::duplicate() сообщит об этом исключением).
+    [[nodiscard]] virtual std::unique_ptr<BlockSource> duplicate() const { return nullptr; }
 
 protected:
     BlockSource() = default;

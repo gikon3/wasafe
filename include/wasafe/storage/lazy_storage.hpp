@@ -29,6 +29,8 @@ public:
 
 public:
     LazyStorage(SignalIndex index, std::unique_ptr<BlockSource> source, Options opts = {});
+    /// Поверх УЖЕ разделяемого индекса: так дубликат не копирует геометрию блоков.
+    LazyStorage(std::shared_ptr<const SignalIndex> index, std::unique_ptr<BlockSource> source, Options opts = {});
     LazyStorage(const LazyStorage&) = delete;
     LazyStorage(LazyStorage&&) = delete;
     ~LazyStorage() override;
@@ -48,8 +50,11 @@ public:
     void prefetch(std::span<const SignalId> ids, TimeRange range) override;
     void release(TimeRange keep) override;
     [[nodiscard]] std::size_t cachedBytes() const override;
+    /// Индекс разделяется, источник берётся через BlockSource::duplicate(), кэш
+    /// у дубликата свой и пустой. nullptr, если источник не размножается.
+    [[nodiscard]] std::unique_ptr<Storage> duplicate() const override;
 
-    [[nodiscard]] const SignalIndex& index() const noexcept { return index_; }
+    [[nodiscard]] const SignalIndex& index() const noexcept { return *index_; }
 
     LazyStorage& operator=(const LazyStorage&) = delete;
     LazyStorage& operator=(LazyStorage&&) = delete;
@@ -58,7 +63,8 @@ private:
     class BlockCache;  ///< LRU декодированных блоков (pimpl)
 
 private:
-    SignalIndex index_;
+    /// Неизменяем после сборки, поэтому дубликаты его разделяют.
+    std::shared_ptr<const SignalIndex> index_;
     std::unique_ptr<BlockSource> source_;
     std::unique_ptr<BlockCache> cache_;
     Options opts_;

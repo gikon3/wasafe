@@ -19,6 +19,7 @@ add_executable(wasafe_tests
     test_multi_cursor.cpp
     test_memory.cpp
     test_indexing.cpp
+    test_duplicate.cpp
     test_ingest.cpp
 
     # Внутренние модули, проверяемые напрямую: библиотека собрана со скрытой
