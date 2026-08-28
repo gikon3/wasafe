@@ -26,6 +26,9 @@ struct ValueChange {
 /// current().source говорит, чьё изменение отдано). Реализуется storage'ом.
 /// Курсор владеет своими буферами, поэтому ValueView, полученный из current(),
 /// валиден до следующего вызова next().
+///
+/// Курсор, как и storage, рассчитан на ОДИН поток исполнения, а ValueView не
+/// владеет данными: чтобы отдать значение другому потоку, копируйте его в Value.
 class WASAFE_API Cursor {
 public:
     virtual ~Cursor() = default;
