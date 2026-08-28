@@ -141,30 +141,30 @@ ColumnView MemoryStorage::Stream::columns() const noexcept {
 }
 
 const MemoryStorage::Stream* MemoryStorage::stream(SignalId id) const noexcept {
-    return id.valid() && id.get() < streams_.size() ? &streams_[id.get()] : nullptr;
+    return id.valid() && id.get() < streams_->size() ? &(*streams_)[id.get()] : nullptr;
 }
 
 void MemoryStorage::reserveStreams(std::size_t n) {
-    streams_.reserve(n);
+    streams_->reserve(n);
 }
 
 SignalId MemoryStorage::createStream(ValueKind kind, std::uint32_t width) {
-    const auto id = SignalId{static_cast<SignalId::ValueType>(streams_.size())};
-    streams_.emplace_back(kind, width);
+    const auto id = SignalId{static_cast<SignalId::ValueType>(streams_->size())};
+    streams_->emplace_back(kind, width);
     return id;
 }
 
 void MemoryStorage::append(SignalId id, TimeStamp t, ValueView v) {
-    if (!id.valid() || id.get() >= streams_.size())
+    if (!id.valid() || id.get() >= streams_->size())
         return;
-    streams_[id.get()].append(t, v);
+    (*streams_)[id.get()].append(t, v);
 }
 
 void MemoryStorage::finalize() {
     // Общий диапазон времени: [min первого изменения, max последнего + 1).
     // Полуоткрытый конец «+1» делает последний фронт содержащимся в диапазоне.
     std::optional<std::pair<TimeStamp, TimeStamp>> span;
-    for (const Stream& s : streams_) {
+    for (const Stream& s : *streams_) {
         if (s.empty())
             continue;
         const auto times = s.times();
@@ -179,6 +179,14 @@ void MemoryStorage::finalize() {
         }
     }
     timeRange_ = span ? TimeRange{span->first, span->second + 1} : TimeRange{};
+}
+
+std::unique_ptr<Storage> MemoryStorage::duplicate() const {
+    auto copy = std::make_unique<MemoryStorage>();
+    copy->streams_ = streams_;  // значения только читаются — разделяем, а не копируем
+    copy->timeRange_ = timeRange_;
+    copy->timeScale_ = timeScale_;
+    return copy;
 }
 
 ValueView MemoryStorage::valueAt(SignalId id, TimeStamp timestamp) const {

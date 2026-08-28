@@ -201,6 +201,10 @@ private:
 // LazyStorage
 // ---------------------------------------------------------------------------
 LazyStorage::LazyStorage(SignalIndex index, std::unique_ptr<BlockSource> source, Options opts) :
+        LazyStorage{std::make_shared<const SignalIndex>(std::move(index)), std::move(source), opts} {
+}
+
+LazyStorage::LazyStorage(std::shared_ptr<const SignalIndex> index, std::unique_ptr<BlockSource> source, Options opts) :
         index_{std::move(index)}, source_{std::move(source)}, cache_{std::make_unique<BlockCache>(opts.cacheBytes)},
         opts_{opts} {
 }
@@ -209,14 +213,14 @@ LazyStorage::LazyStorage(SignalIndex index, std::unique_ptr<BlockSource> source,
 LazyStorage::~LazyStorage() = default;
 
 TimeRange LazyStorage::timeRange() const {
-    return index_.timeRange();
+    return index_->timeRange();
 }
 TimeScale LazyStorage::timeScale() const {
-    return index_.timeScale();
+    return index_->timeScale();
 }
 
 ValueView LazyStorage::valueAt(SignalId id, TimeStamp t) const {
-    const SignalLocator* loc = index_.locate(id);
+    const SignalLocator* loc = index_->locate(id);
     if (!loc || loc->blocks.empty())
         return {};
 
@@ -236,7 +240,7 @@ ValueView LazyStorage::valueAt(SignalId id, TimeStamp t) const {
 }
 
 std::unique_ptr<Cursor> LazyStorage::openCursor(SignalId id, TimeRange range) const {
-    const SignalLocator* loc = index_.locate(id);
+    const SignalLocator* loc = index_->locate(id);
     if (!loc || range.empty())
         return std::make_unique<EmptyCursor>();
     const auto [first, last] = loc->blocksIn(range);
@@ -246,7 +250,7 @@ std::unique_ptr<Cursor> LazyStorage::openCursor(SignalId id, TimeRange range) co
 }
 
 TimeStamp LazyStorage::nextChange(SignalId id, TimeStamp after) const {
-    const SignalLocator* loc = index_.locate(id);
+    const SignalLocator* loc = index_->locate(id);
     if (!loc || loc->blocks.empty())
         return kNoTime;
 
@@ -261,7 +265,7 @@ TimeStamp LazyStorage::nextChange(SignalId id, TimeStamp after) const {
 }
 
 TimeStamp LazyStorage::prevChange(SignalId id, TimeStamp before) const {
-    const SignalLocator* loc = index_.locate(id);
+    const SignalLocator* loc = index_->locate(id);
     if (!loc || loc->blocks.empty())
         return kNoTime;
 
@@ -281,7 +285,7 @@ TimeStamp LazyStorage::prevChange(SignalId id, TimeStamp before) const {
 
 void LazyStorage::prefetch(std::span<const SignalId> ids, TimeRange range) {
     for (const SignalId id : ids) {
-        const SignalLocator* loc = index_.locate(id);
+        const SignalLocator* loc = index_->locate(id);
         if (!loc)
             continue;
         const auto [first, last] = loc->blocksIn(range);
@@ -296,6 +300,14 @@ void LazyStorage::release(TimeRange keep) {
 
 std::size_t LazyStorage::cachedBytes() const {
     return cache_->bytes();
+}
+
+std::unique_ptr<Storage> LazyStorage::duplicate() const {
+    auto source = source_->duplicate();
+    if (!source)
+        return nullptr;  // источник размножения не поддерживает — решает вызывающий
+    // Индекс разделяется, кэш у дубликата свой и начинается пустым.
+    return std::make_unique<LazyStorage>(index_, std::move(source), opts_);
 }
 
 }  // namespace WaSafe

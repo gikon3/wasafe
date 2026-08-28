@@ -35,17 +35,25 @@ namespace WaSafe {
 /// При этом NodeId и SignalId между экземплярами переносимы — иерархия у них
 /// общая, — а хэндлы Signal и Scope нет: каждый держит указатель на конкретную
 /// Database, и использовать его можно только с ней.
-class WASAFE_API Database {
+class WASAFE_API Database final {
 public:
     /// Собрать БД из уже построенной иерархии и готового storage (после ingestion
     /// в память или поверх собственного нормализованного хранилища).
     Database(Hierarchy hierarchy, std::unique_ptr<Storage> storage);
     Database(const Database&) = delete;
     Database(Database&&) = default;
-    virtual ~Database() = default;
+    ~Database() = default;
 
     // --- метаданные ---------------------------------------------------------
-    [[nodiscard]] const Hierarchy& hierarchy() const noexcept { return hierarchy_; }
+    /// Иерархия живёт, пока жива хотя бы одна БД, её разделяющая, — то есть
+    /// ссылка переживает и уничтожение ЭТОГО экземпляра, если остались дубликаты.
+    /// Бросает у перемещённой БД: разыменовывать нулевой указатель нельзя, а
+    /// noexcept это исключило бы (та же развилка, что у Signal::database()).
+    [[nodiscard]] const Hierarchy& hierarchy() const {
+        if (!hierarchy_)
+            throwMovedFrom();
+        return *hierarchy_;
+    }
     [[nodiscard]] Storage& storage() const noexcept { return *storage_; }
     [[nodiscard]] TimeRange timeRange() const { return storage_->timeRange(); }
     [[nodiscard]] TimeScale timeScale() const { return storage_->timeScale(); }
@@ -88,10 +96,32 @@ public:
     [[nodiscard]] Signal signalHandle(NodeId id) const;
     [[nodiscard]] Scope scopeHandle(ScopeId id) const;
 
+    // --- размножение по потокам ---------------------------------------------
+    /// Независимая равноценная БД поверх ТЕХ ЖЕ данных — по одной на поток.
+    /// Иерархия и значения разделяются, а изменяемое (кэш блоков, дескриптор
+    /// файла) у дубликата своё, поэтому потоки не мешают друг другу и ничего не
+    /// синхронизируют. Дубликат не зависит от оригинала и переживает его.
+    ///
+    /// Это не копирующий конструктор: операция открывает файл заново, то есть
+    /// стоит дорого и может бросить. Дубликат заводят на поток (или на окно), а
+    /// не на запрос — LRU у него начинается пустым.
+    ///
+    /// Бросает Exception, если storage размножения не поддерживает: у формата со
+    /// своим блочным устройством может не быть BlockSource::duplicate().
+    [[nodiscard]] Database duplicate() const;
+
     Database& operator=(const Database&) = delete;
     Database& operator=(Database&&) = default;
 
 private:
+    /// Поверх УЖЕ разделяемой иерархии — для duplicate(). Приватный намеренно:
+    /// то, что иерархия лежит за shared_ptr, остаётся деталью реализации, иначе
+    /// сменить стратегию владения стало бы ломающим изменением.
+    Database(std::shared_ptr<const Hierarchy> hierarchy, std::unique_ptr<Storage> storage);
+
+    /// Бросок вынесен из inline-аксессора в холодную функцию.
+    [[noreturn]] static void throwMovedFrom();
+
     /// Собрать листовые потоки поддерева узла (для merge-курсора композита).
     void collectLeafStreams(NodeId id, std::vector<SignalId>& out) const;
 
@@ -112,7 +142,9 @@ private:
     [[nodiscard]] std::optional<LogicVector> sliceAt(SignalId stream, BitSlice slice, TimeStamp t) const;
 
 private:
-    Hierarchy hierarchy_;
+    /// Неизменяема после сборки, поэтому дубликаты её разделяют.
+    std::shared_ptr<const Hierarchy> hierarchy_;
+    /// А вот storage свой у каждого: в нём и живёт изменяемое состояние.
     std::unique_ptr<Storage> storage_;
 };
 

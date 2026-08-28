@@ -9,7 +9,11 @@ std::unique_ptr<FileBlockSource> FileBlockSource::open(const std::filesystem::pa
     if (!file)
         throw Exception{"cannot open " + path.string()};
     // Конструктор приватный — используем new через обёртку.
-    return std::unique_ptr<FileBlockSource>(new FileBlockSource(std::move(file)));
+    return std::unique_ptr<FileBlockSource>(new FileBlockSource(path, std::move(file)));
+}
+
+std::unique_ptr<BlockSource> FileBlockSource::duplicate() const {
+    return open(path_);  // новый дескриптор со своей позицией, а не копия ifstream
 }
 
 std::vector<std::byte> FileBlockSource::readBlock(const BlockRef& block) const {
