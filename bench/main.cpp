@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <print>
 #include <string>
@@ -34,7 +36,7 @@ struct Options {
 };
 
 [[nodiscard]] bool wanted(const Options& o, std::string_view name) {
-    return o.only.empty() || name.find(o.only) != std::string_view::npos;
+    return o.only.empty() || name.contains(o.only);
 }
 
 [[nodiscard]] Bench::Spec specOf(const Options& o) {
@@ -329,9 +331,8 @@ void benchValueAt(Bench::Report& report, const Options& opts, const std::filesys
     std::uint64_t seen = 0;
     const Bench::Timer timer;
     for (std::size_t step = 0; step < kSteps; ++step) {
-        const auto t = static_cast<TimeStamp>(range.begin +
-                static_cast<TimeStamp>(
-                        (range.end - range.begin) * static_cast<TimeStamp>(step) / static_cast<TimeStamp>(kSteps)));
+        const TimeStamp t =
+                range.begin + (range.end - range.begin) * static_cast<TimeStamp>(step) / static_cast<TimeStamp>(kSteps);
         for (std::size_t i = 0; i < visible; ++i)
             seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(leaves.nodes[i], t).kind()));
     }
@@ -386,18 +387,21 @@ void benchBlockSize(Bench::Report& report, const Options& opts) {
     }
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+/// Тело замеров. Исключения ловит main: наружу из него они выходить не должны,
+/// а завершение через std::terminate прячет причину.
+int run(int argc, char** argv) {
     Options opts;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
-        if (arg == "--csv")
+        if (arg == "--csv") {
             opts.csv = true;
-        else if (arg.starts_with("--scale="))
+        }
+        else if (arg.starts_with("--scale=")) {
             opts.scale = std::stod(std::string{arg.substr(8)});
-        else if (arg.starts_with("--only="))
+        }
+        else if (arg.starts_with("--only=")) {
             opts.only = std::string{arg.substr(7)};
+        }
         else {
             std::print(stderr, "usage: wasafe-bench [--csv] [--scale=X] [--only=substr]\n");
             return 2;
@@ -427,4 +431,24 @@ int main(int argc, char** argv) {
 
     report.print(opts.csv);
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Обработчики намеренно на fputs, а не на std::print: форматирование само
+    // может бросить, и тогда исключение ушло бы уже из обработчика.
+    try {
+        return run(argc, argv);
+    }
+    catch (const std::exception& e) {
+        std::fputs("ошибка: ", stderr);
+        std::fputs(e.what(), stderr);
+        std::fputs("\n", stderr);
+        return 1;
+    }
+    catch (...) {
+        std::fputs("ошибка: неизвестное исключение\n", stderr);
+        return 1;
+    }
 }

@@ -40,8 +40,9 @@ private:
 
 struct StreamInfo {
     SignalId id;
-    std::uint32_t width = 0;  ///< 0 у real/string
-    std::uint32_t period = 0;
+    std::uint32_t width = 0;      ///< 0 у real/string
+    std::size_t periodIndex = 0;  ///< индекс в kPeriods
+    std::size_t widthIndex = 0;   ///< индекс в kWidths, он же индекс скретча
     ValueKind kind = ValueKind::LOGIC;
 };
 
@@ -57,18 +58,8 @@ std::size_t periodBucket(std::uint32_t i, std::uint32_t total) {
     return kShare.size() - 1;
 }
 
-}  // namespace
-
-std::uint64_t estimateChanges(const Spec& spec) {
-    std::uint64_t total = 0;
-    for (std::uint32_t i = 0; i < spec.streams; ++i) {
-        const std::uint32_t period = kPeriods[periodBucket(i, spec.streams)];
-        total += static_cast<std::uint64_t>(spec.endTime) / period;
-    }
-    return total;
-}
-
-Stats generate(Builder& sink, const Spec& spec) {
+/// Фаза заголовка: объявить scope и переменные, вернуть описания потоков.
+std::vector<StreamInfo> declareStreams(Builder& sink, const Spec& spec) {
     sink.setTimeScale({.exponent = -12, .scale = 1});
     sink.beginScope("top", ScopeKind::MODULE);
 
@@ -88,7 +79,7 @@ Stats generate(Builder& sink, const Spec& spec) {
         ++inScope;
 
         StreamInfo info;
-        info.period = kPeriods[periodBucket(i, spec.streams)];
+        info.periodIndex = periodBucket(i, spec.streams);
 
         if (i % 97 == 96) {  // редкие вещественные
             info.kind = ValueKind::REAL;
@@ -99,7 +90,8 @@ Stats generate(Builder& sink, const Spec& spec) {
             info.id = sink.declareVar(std::format("s{}", i), makeString());
         }
         else {
-            info.width = kWidths[i % kWidths.size()];
+            info.widthIndex = i % kWidths.size();
+            info.width = kWidths[info.widthIndex];
             info.kind = ValueKind::LOGIC;
             const Type t = info.width == 1 ? makeScalar() : makeVector(static_cast<std::int32_t>(info.width) - 1, 0);
             info.id = sink.declareVar(std::format("sig{}", i), t);
@@ -110,21 +102,48 @@ Stats generate(Builder& sink, const Spec& spec) {
     sink.endScope();  // последний модуль
     sink.endScope();  // top
     sink.headerDone();
+    return streams;
+}
 
+/// Одно изменение значения. Скретчи переиспользуются: приёмник копирует
+/// значение немедленно — как и положено парсеру.
+void emitOne(Builder& sink, const StreamInfo& info, Rng& rng, std::array<LogicVector, kWidths.size()>& scratch,
+        std::string& strScratch) {
+    switch (info.kind) {
+        case ValueKind::REAL:
+            sink.valueChange(info.id, ValueView{static_cast<double>(rng.next() % 100000) / 16.0});
+            return;
+        case ValueKind::STRING:
+            strScratch = std::format("st{}", rng.next() % 1000);
+            sink.valueChange(info.id, ValueView{std::string_view{strScratch}});
+            return;
+        default:
+            break;
+    }
+
+    LogicVector& v = scratch[info.widthIndex];
+    const std::uint64_t bits = rng.next();
+    for (std::uint32_t bit = 0; bit < info.width; ++bit) {
+        // Раз в 64 изменения подмешиваем x/z: четырёхзначный путь кодировщика
+        // должен быть под нагрузкой тоже.
+        Logic value = Logic::ZERO;
+        if ((bits & 0x3Fu) == 0 && bit == 0)
+            value = Logic::X;
+        else if (((bits >> (bit % 64u)) & 1u) != 0)
+            value = Logic::ONE;
+        v.set(bit, value);
+    }
+    sink.valueChange(info.id, ValueView{v});
+}
+
+/// Фаза значений: пройти по времени и записать изменения.
+Stats emitChanges(Builder& sink, const Spec& spec, const std::vector<StreamInfo>& streams) {
     // Раскладка потоков по группам периодов: на каждом тике трогаются только те
     // группы, чей период его делит.
     std::array<std::vector<std::uint32_t>, kPeriods.size()> byPeriod;
-    for (std::uint32_t i = 0; i < streams.size(); ++i) {
-        for (std::size_t b = 0; b < kPeriods.size(); ++b) {
-            if (streams[i].period == kPeriods[b]) {
-                byPeriod[b].push_back(i);
-                break;
-            }
-        }
-    }
+    for (std::uint32_t i = 0; i < streams.size(); ++i)
+        byPeriod[streams[i].periodIndex].push_back(i);
 
-    // Скретчи на каждую ширину: приёмник копирует значение немедленно, поэтому
-    // буфер переиспользуется — как и положено парсеру.
     std::array<LogicVector, kWidths.size()> scratch{LogicVector{kWidths[0]}, LogicVector{kWidths[1]},
             LogicVector{kWidths[2]}, LogicVector{kWidths[3]}, LogicVector{kWidths[4]}};
 
@@ -143,37 +162,28 @@ Stats generate(Builder& sink, const Spec& spec) {
                     sink.setTime(t);
                     timeSet = true;
                 }
-                const StreamInfo& info = streams[si];
-                switch (info.kind) {
-                    case ValueKind::REAL:
-                        sink.valueChange(info.id, ValueView{static_cast<double>(rng.next() % 100000) / 16.0});
-                        break;
-                    case ValueKind::STRING:
-                        strScratch = std::format("st{}", rng.next() % 1000);
-                        sink.valueChange(info.id, ValueView{std::string_view{strScratch}});
-                        break;
-                    default: {
-                        LogicVector& v = scratch[info.width == 1 ? 0
-                                                                 : (info.width == 8                   ? 1
-                                                                                   : info.width == 16 ? 2
-                                                                                   : info.width == 32 ? 3
-                                                                                                      : 4)];
-                        const std::uint64_t bits = rng.next();
-                        for (std::uint32_t bit = 0; bit < info.width; ++bit) {
-                            // Раз в 64 изменения подмешиваем x/z: четырёхзначный
-                            // путь кодировщика должен быть под нагрузкой тоже.
-                            const bool unknown = (bits & 0x3Fu) == 0 && bit == 0;
-                            v.set(bit, unknown ? Logic::X : ((bits >> (bit % 64u)) & 1u ? Logic::ONE : Logic::ZERO));
-                        }
-                        sink.valueChange(info.id, ValueView{v});
-                        break;
-                    }
-                }
+                emitOne(sink, streams[si], rng, scratch, strScratch);
                 ++stats.changes;
             }
         }
     }
     return stats;
+}
+
+}  // namespace
+
+std::uint64_t estimateChanges(const Spec& spec) {
+    std::uint64_t total = 0;
+    for (std::uint32_t i = 0; i < spec.streams; ++i) {
+        const std::uint32_t period = kPeriods[periodBucket(i, spec.streams)];
+        total += static_cast<std::uint64_t>(spec.endTime) / period;
+    }
+    return total;
+}
+
+Stats generate(Builder& sink, const Spec& spec) {
+    const std::vector<StreamInfo> streams = declareStreams(sink, spec);
+    return emitChanges(sink, spec, streams);
 }
 
 }  // namespace Bench
