@@ -32,7 +32,6 @@ package "storage/" as storage #E8F5E9 {
     [MemoryStorage]
     [LazyStorage]
     [SignalIndex]
-    [SignalQuery]
 }
 
 package "model/" as model #F3E5F5 {
