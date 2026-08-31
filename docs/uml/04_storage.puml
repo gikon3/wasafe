@@ -224,24 +224,6 @@ class Database {
     + scopeHandle(id)    : Scope
 }
 
-class SignalQuery <<не реализован>> {
-    - db_ : const Database*
-    --
-    + match(glob) : vector<Signal>
-    + leavesUnder(scope) : vector<Signal>
-    + where(pred) : vector<Signal>
-    + prefetch(signals, range)
-    note right
-      ОБЪЯВЛЕН, НО НЕ РЕАЛИЗОВАН:
-      signal_query.hpp есть,
-      парного .cpp нет, символов
-      в libwasafe.a тоже — вызов
-      даст ошибку компоновки.
-    end note
-}
-
-SignalQuery --> Database
-
 note as NOPEN
   Открытия по пути у БД нет:
   БД строится из Reader'а

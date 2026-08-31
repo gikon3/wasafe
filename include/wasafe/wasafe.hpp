@@ -30,7 +30,6 @@
 #include "wasafe/storage/memory_storage.hpp"
 #include "wasafe/storage/raw_block_source.hpp"
 #include "wasafe/storage/signal_index.hpp"
-#include "wasafe/storage/signal_query.hpp"
 #include "wasafe/storage/storage.hpp"
 #include "wasafe/storage/value_cursor.hpp"
 #include "wasafe/types/logic.hpp"
