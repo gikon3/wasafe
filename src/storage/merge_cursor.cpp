@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <optional>
 #include <utility>
 
 namespace WaSafe {
@@ -30,30 +31,32 @@ MergeCursor::MergeCursor(std::vector<std::unique_ptr<Cursor>> subs, std::vector<
     start();
 }
 
+bool MergeCursor::later(const Key& lhs, const Key& rhs) noexcept {
+    // Вторая компонента ключа — не украшение: без неё pop_heap выбирал бы среди
+    // равных времён произвольный подкурсор, и порядок выдачи зависел бы от
+    // размера кучи. Совпадающие номера источников (в штатном употреблении их не
+    // бывает) дают эквивалентность — для кучи это допустимо.
+    return lhs.time != rhs.time ? lhs.time > rhs.time : lhs.source > rhs.source;
+}
+
 void MergeCursor::start() {
     // Подкурсоры сразу ставятся на первое изменение: ключ кучи — время текущего
     // изменения, поэтому пустые в неё не попадают вовсе.
     heap_.reserve(subs_.size());
     for (std::uint32_t i = 0; i < subs_.size(); ++i) {
         if (subs_[i]->next())
-            heap_.push_back(i);
+            heap_.push_back(keyOf(i));
     }
-    std::ranges::make_heap(heap_, [this](std::uint32_t a, std::uint32_t b) { return later(a, b); });
+    std::ranges::make_heap(heap_, later);
+}
+
+MergeCursor::Key MergeCursor::keyOf(std::uint32_t sub) const noexcept {
+    return Key{.time = subs_[sub]->current().time, .source = sourceOf(sub), .sub = sub};
 }
 
 std::uint32_t MergeCursor::sourceOf(std::uint32_t sub) const noexcept {
     const std::uint32_t src = sources_[sub];
     return src != kKeepSource ? src : subs_[sub]->current().source;
-}
-
-bool MergeCursor::later(std::uint32_t lhs, std::uint32_t rhs) const noexcept {
-    const TimeStamp lt = subs_[lhs]->current().time;
-    const TimeStamp rt = subs_[rhs]->current().time;
-    // Вторая компонента ключа — не украшение: без неё pop_heap выбирал бы среди
-    // равных времён произвольный подкурсор, и порядок выдачи зависел бы от
-    // размера кучи. Совпадающие номера источников (в штатном употреблении их не
-    // бывает) дают эквивалентность — для кучи это допустимо.
-    return lt != rt ? lt > rt : sourceOf(lhs) > sourceOf(rhs);
 }
 
 void MergeCursor::advanceLast() {
@@ -65,30 +68,29 @@ void MergeCursor::advanceLast() {
     if (!subs_[idx]->next())
         return;  // подкурсор исчерпан — в кучу не возвращается
 
-    heap_.push_back(idx);
-    std::ranges::push_heap(heap_, [this](std::uint32_t a, std::uint32_t b) { return later(a, b); });
+    heap_.push_back(keyOf(idx));
+    std::ranges::push_heap(heap_, later);
 }
 
-std::size_t MergeCursor::takeMin() {
+std::optional<MergeCursor::Key> MergeCursor::takeMin() {
     if (heap_.empty())
-        return kNone;
-    std::ranges::pop_heap(heap_, [this](std::uint32_t a, std::uint32_t b) { return later(a, b); });
-    const std::uint32_t idx = heap_.back();
+        return std::nullopt;
+    std::ranges::pop_heap(heap_, later);
+    const Key key = heap_.back();
     heap_.pop_back();
-    return idx;
+    return key;
 }
 
 bool MergeCursor::next() {
     advanceLast();
 
-    const std::size_t best = takeMin();
-    if (best == kNone)
+    const std::optional<Key> best = takeMin();
+    if (!best)
         return false;
 
-    current_ = subs_[best]->current();
-    if (const std::uint32_t src = sources_[best]; src != kKeepSource)
-        current_.source = src;
-    last_ = best;
+    current_ = subs_[best->sub]->current();
+    current_.source = best->source;  // разрешён при заталкивании в кучу
+    last_ = best->sub;
     return true;
 }
 
