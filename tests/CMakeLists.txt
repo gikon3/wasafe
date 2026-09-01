@@ -21,6 +21,7 @@ add_executable(wasafe_tests
     test_indexing.cpp
     test_duplicate.cpp
     test_ingest.cpp
+    test_validating_builder.cpp
 
     # Внутренние модули, проверяемые напрямую: библиотека собрана со скрытой
     # видимостью, поэтому при shared-сборке её символы тестам не видны.

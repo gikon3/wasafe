@@ -7,4 +7,5 @@ target_sources(wasafe
     ingest.cpp
     store.cpp
     memory_builder.cpp
+    validating_builder.cpp
 )

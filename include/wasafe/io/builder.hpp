@@ -127,4 +127,29 @@ struct WASAFE_API IndexingOptions {
 [[nodiscard]] WASAFE_API std::unique_ptr<Builder> makeIndexingBuilder(const std::filesystem::path& storePath,
         IndexingOptions opts = {});
 
+/// Декоратор, проверяющий контракт этого интерфейса и делегирующий всё в sink.
+///
+/// Контракт Builder рассчитан на ВНЕШНИЕ парсеры, но приёмники ради горячего
+/// пути почти ничего не проверяют, и нарушения выходят наружу не тем, чем
+/// обещано моделью ошибок: несовпадение вида значения с объявленным потоком
+/// доходит до std::bad_variant_access вместо Exception, а несовпадение ширины
+/// не диагностируется вовсе — длинное значение молча обрезается, короткое пишет
+/// за границу массива.
+///
+/// Проверяются фаза протокола (declareVar после headerDone(), valueChange до
+/// него, finish() дважды, takeDatabase() без finish()), баланс
+/// beginScope/endScope, монотонность setTime, валидность SignalId в
+/// valueChange и alias/leaves, а также вид и ширина значения. Всё нарушенное —
+/// WaSafe::Exception с указанием потока и обеих величин.
+///
+/// Ставится на время отладки своего Reader'а:
+///
+///   auto sink  = WaSafe::makeIndexingBuilder("dump.wsfstore");
+///   auto guard = WaSafe::makeValidatingBuilder(*sink);
+///   WaSafe::Database db = WaSafe::ingest(reader, *guard);
+///
+/// В готовом парсере не нужен: каждый valueChange стоит поиска в хеш-таблице.
+/// Ссылка на sink НЕ владеющая — он обязан пережить декоратор.
+[[nodiscard]] WASAFE_API std::unique_ptr<Builder> makeValidatingBuilder(Builder& sink);
+
 }  // namespace WaSafe
