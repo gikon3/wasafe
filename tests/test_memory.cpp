@@ -537,3 +537,28 @@ TEST(Memory, ExplicitLeavesAreNotConsumedInsidePackedSubtree) {
     EXPECT_NE(nested->streamId(), std::optional{leaves[0]});
     EXPECT_NE(nested->streamId(), std::optional{leaves[1]});
 }
+
+// То же, что LazyBackend.NarrowValueFillsTailWithX, но для MemoryStorage и через
+// публичный путь: ровно так внешний парсер и роняет процесс, если отдаст в
+// valueChange значение уже объявленного потока.
+TEST(Memory, NarrowValueFillsTailWithX) {
+    auto b = makeMemoryBuilder();
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId bus = b->declareVar("bus", makeVector(7, 0));
+    b->endScope();
+    b->headerDone();
+
+    b->setTime(0);
+    b->valueChange(bus, LogicScratch{8, "00001111"}.view());
+    b->setTime(10);
+    b->valueChange(bus, LogicScratch{4, "1010"}.view());
+    b->finish();
+    const Database db = b->takeDatabase();
+
+    const auto bus_ = db.find("top.bus");
+    ASSERT_TRUE(bus_);
+    EXPECT_EQ(bus_->valueAt(0).asLogic().toString(), "00001111");
+    // Хвост — «биты не записаны», то есть X: та же семантика, что у
+    // LogicVectorView::operator[] за пределами ширины.
+    EXPECT_EQ(bus_->valueAt(10).asLogic().toString(), "xxxx1010");
+}

@@ -50,10 +50,15 @@ void DecodedBlock::append(TimeStamp t, ValueView v) {
                     s.aval.resize(base + words, 0);
 
                     const LogicVectorView src = v.logic();
-                    // bval заводится лишь когда он реально нужен. Первое
+                    // bval заводится лишь когда он реально нужен; первое
                     // четырёхзначное значение разворачивает план нулями под уже
                     // записанные изменения — они были двухзначными, нули верны.
-                    if (!s.bval.empty() || !src.isTwoState())
+                    //
+                    // Узкое значение тоже требует плана, хотя само двухзначно:
+                    // цикл ниже идёт по ширине ПОТОКА, а биты за src.width()
+                    // LogicVectorView отдаёт как X — b-бит у них единичный.
+                    // Без этой ветки запись ушла бы за границу пустого вектора.
+                    if (!s.bval.empty() || !src.isTwoState() || src.width() < s.width)
                         s.bval.resize(base + words, 0);
 
                     for (std::uint32_t bit = 0; bit < s.width; ++bit) {

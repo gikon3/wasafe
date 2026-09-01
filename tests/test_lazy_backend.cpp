@@ -159,6 +159,32 @@ TEST(LazyBackend, PromotesToFourStateMidBlock) {
 }
 
 // Двухзначный блок не хранит bval-план — он вдвое компактнее четырёхзначного.
+// Значение УЖЕ потока: append идёт по ширине потока, а биты за шириной значения
+// LogicVectorView отдаёт как X — b-бит у них единичный. Пока план bval не
+// заводился под двухзначное значение, эта запись уходила за границу пустого
+// вектора (SIGSEGV), а не давала хвост из x.
+TEST(LazyBackend, NarrowValueFillsTailWithX) {
+    DecodedBlock b{ValueKind::LOGIC, 8};
+
+    LogicVector wide{8};
+    wide.assignFromChars("00001111");
+    b.append(0, ValueView{wide});
+
+    LogicVector narrow{4};
+    narrow.assignFromChars("1010");
+    b.append(10, ValueView{narrow});
+
+    ASSERT_EQ(b.count(), 2u);
+    EXPECT_EQ(logicStr(b.valueAtIndex(0)), "00001111");
+    EXPECT_EQ(logicStr(b.valueAtIndex(1)), "xxxx1010");
+
+    // Блок стал четырёхзначным, и флаг обязан пережить сериализацию.
+    const DecodedBlock got = decodeBlock(encodeBlock(b));
+    ASSERT_EQ(got.count(), 2u);
+    EXPECT_EQ(logicStr(got.valueAtIndex(0)), "00001111");
+    EXPECT_EQ(logicStr(got.valueAtIndex(1)), "xxxx1010");
+}
+
 TEST(LazyBackend, TwoStateBlockIsSmaller) {
     const auto twoState = makeLogicBlock({{0, "0001"}, {10, "1010"}, {20, "1111"}}, 4);
     const auto fourState = makeLogicBlock({{0, "0001"}, {10, "1010"}, {20, "111x"}}, 4);
