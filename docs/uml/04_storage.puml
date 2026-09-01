@@ -140,7 +140,7 @@ class DecodedBlock <<data>> {
     + columns() : ColumnView
     + slice(lo, hi) / byteSize()
     --
-    «сериализация (формат 'WDB2'):»
+    «сериализация (формат 'WDB3'):»
     + encodeBlock(block) : vector<byte>
     + decodeBlock(raw)   : DecodedBlock
     note right
@@ -164,8 +164,8 @@ class SignalIndex {
     + locator(id) : SignalLocator&
     + addBlock(id, BlockRef)
     --
-    + save(path)          «сайдкар *.wsfidx»
-    + {static} load(path) : SignalIndex
+    + encode(ByteWriter)  «секция метаданных store»
+    + {static} decode(ByteReader) : SignalIndex
 }
 
 class SignalLocator <<data>> {
@@ -186,6 +186,7 @@ class SignalLocator <<data>> {
 class BlockRef <<data>> {
     + time : TimeRange
     + offset : uint64_t
+    + cookie : uint64_t   «доадресация внутри чанка; ядро НЕ интерпретирует»
     + storedSize : uint32_t
     + rawSize    : uint32_t
     + codec : Codec  {NONE|ZSTD|LZ4|ZLIB}
