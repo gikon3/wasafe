@@ -20,6 +20,21 @@ std::vector<std::byte> bytesOf(std::string_view s) {
     return out;
 }
 
+/// Ссылочный счёт «в лоб», без таблиц: восемь битовых шагов на байт, прямо по
+/// определению полинома. Нужен, чтобы проверять табличную реализацию не только
+/// известными векторами: при slicing-by-8 таблиц восемь, и ошибка в одной из них
+/// на коротких данных эталонными векторами может не задеться.
+std::uint32_t crcByDefinition(std::span<const std::byte> data) {
+    constexpr std::uint32_t kPolynomial = 0xEDB8'8320u;
+    std::uint32_t c = ~0u;
+    for (const std::byte b : data) {
+        c ^= static_cast<std::uint32_t>(b);
+        for (int bit = 0; bit < 8; ++bit)
+            c = ((c & 1u) != 0u) ? (kPolynomial ^ (c >> 1u)) : (c >> 1u);
+    }
+    return ~c;
+}
+
 }  // namespace
 
 // Сумма пишется в файл, поэтому её значения — часть формата: проверяются
@@ -54,5 +69,23 @@ TEST(Crc32, DetectsSingleBitFlip) {
         data[i] = saved ^ std::byte{0x01};
         EXPECT_NE(Crc32::compute(data), original) << "byte = " << i;
         data[i] = saved;
+    }
+}
+
+// Табличный счёт против определения полинома — на каждой длине от нуля до
+// восьмидесяти, то есть на всех сочетаниях «сколько восьмёрок и сколько байт
+// хвоста». Эталонные векторы выше проверяют результат, а это — таблицы.
+TEST(Crc32, MatchesDefinitionOnEveryLength) {
+    std::vector<std::byte> data;
+    data.reserve(80);
+    std::uint32_t next = 0x1234'5678u;
+    for (std::size_t i = 0; i < 80; ++i) {
+        next = next * 1'103'515'245u + 12'345u;  // воспроизводимый мусор
+        data.push_back(static_cast<std::byte>((next >> 16u) & 0xFFu));
+    }
+
+    for (std::size_t n = 0; n <= data.size(); ++n) {
+        const std::span<const std::byte> part{data.data(), n};
+        EXPECT_EQ(Crc32::compute(part), crcByDefinition(part)) << "длина = " << n;
     }
 }
