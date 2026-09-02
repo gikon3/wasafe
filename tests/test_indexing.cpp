@@ -171,6 +171,7 @@ TEST(Indexing, SectionRoundtrip) {
                     .storedSize = 128,
                     .rawSize = 256,
                     .crc32 = 0xDEAD'BEEFu,
+                    .count = 17,
                     .codec = BlockRef::Codec::ZSTD});
     idx.addBlock(SignalId{0},
             BlockRef{.time = {500, 1000}, .offset = 128, .cookie = 42, .storedSize = 64, .rawSize = 200});
@@ -197,7 +198,9 @@ TEST(Indexing, SectionRoundtrip) {
     EXPECT_EQ(l0->blocks[0].codec, BlockRef::Codec::ZSTD);
     EXPECT_EQ(l0->blocks[0].cookie, 0u);
     EXPECT_EQ(l0->blocks[0].crc32, 0xDEAD'BEEFu);
-    EXPECT_EQ(l0->blocks[1].crc32, 0u) << "незаполненное поле остаётся нулём";
+    EXPECT_EQ(l0->blocks[0].count, 17u);
+    EXPECT_EQ(l0->blocks[1].crc32, 0u) << "незаполненные поля остаются нулём";
+    EXPECT_EQ(l0->blocks[1].count, 0u);
     EXPECT_EQ(l0->blocks[1].offset, 128u);
     EXPECT_EQ(l0->blocks[1].cookie, 42u);  // непрозрачное поле переживает запись
 
@@ -682,6 +685,49 @@ TEST(Indexing, VerifiedBlockChecksumCatchesRot) {
     // вместе с ним, иначе она отключалась бы молча.
     const Database copy = checked.duplicate();
     EXPECT_THAT(messageOf([&] { (void)copy.find("top.data")->valueAt(10); }), testing::HasSubstr("checksum mismatch"));
+}
+
+// Число изменений в блоке пишется в индекс: оно даёт оценку плотности без
+// распаковки и обязано пережить переоткрытие.
+TEST(Indexing, BlockCountSurvivesReopen) {
+    TempPath const tmp{"wasafe_block_count.wsfstore"};
+
+    constexpr std::uint32_t kChanges = 5;
+    {
+        auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
+        b->beginScope("top", ScopeKind::MODULE);
+        const SignalId d = b->declareVar("data", makeVector(3, 0));
+        b->endScope();
+        b->headerDone();
+
+        const LogicScratch v{4, "0101"};
+        for (std::uint32_t i = 0; i < kChanges; ++i) {
+            b->setTime(static_cast<TimeStamp>(i) * 10);
+            b->valueChange(d, v.view());
+        }
+        b->finish();
+        std::ignore = b->takeDatabase();
+    }
+
+    const Database db = openStore(tmp.path);
+    const SignalLocator* loc = indexOfReopened(db).locate(SignalId{0});
+    ASSERT_NE(loc, nullptr);
+    EXPECT_EQ(loc->blocks.size(), 3u);  // 5 изменений по 2 на блок
+
+    std::uint32_t total = 0;
+    for (const BlockRef& ref : loc->blocks) {
+        EXPECT_GT(ref.count, 0u);
+        EXPECT_LE(ref.count, 2u) << "блок не может нести больше, чем blockChanges";
+        total += ref.count;
+    }
+    EXPECT_EQ(total, kChanges);
+
+    // И это то же число, что выдаёт курсор: индекс не расходится с данными.
+    std::uint32_t seen = 0;
+    auto cur = db.find("top.data")->changes({0, 100});
+    while (cur.next())
+        ++seen;
+    EXPECT_EQ(seen, kChanges);
 }
 
 // А вот чужой major секции — отказ, и по сообщению видно, какая секция и какая

@@ -17,7 +17,12 @@ DecodedBlock RawBlockSource::decode(SignalId, const BlockRef& ref) const {
     if (verifyChecksums() && ref.crc32 != 0 && Crc32::compute(raw) != ref.crc32)
         throw Exception{"block: checksum mismatch"};
 
-    return decodeBlock(raw);
+    DecodedBlock block = decodeBlock(raw);
+
+    // А это уже про рассинхрон индекса и данных: сумма сошлась бы у обоих.
+    if (verifyChecksums() && ref.count != 0 && block.count() != ref.count)
+        throw Exception{"block: change count differs from index"};
+    return block;
 }
 
 }  // namespace WaSafe

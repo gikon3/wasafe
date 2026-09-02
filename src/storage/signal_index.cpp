@@ -51,6 +51,7 @@ void SignalIndex::encode(ByteWriter& w) const {
             w.u32(b.storedSize);
             w.u32(b.rawSize);
             w.u32(b.crc32);
+            w.u32(b.count);
             w.u8(static_cast<std::uint8_t>(b.codec));
         }
     }
@@ -80,7 +81,8 @@ SignalIndex SignalIndex::decode(ByteReader& r) {
             BlockRef ref{};
             std::uint8_t codec = 0;
             if (!r.i64(ref.time.begin) || !r.i64(ref.time.end) || !r.u64(ref.offset) || !r.u64(ref.cookie) ||
-                    !r.u32(ref.storedSize) || !r.u32(ref.rawSize) || !r.u32(ref.crc32) || !r.u8(codec))
+                    !r.u32(ref.storedSize) || !r.u32(ref.rawSize) || !r.u32(ref.crc32) || !r.u32(ref.count) ||
+                    !r.u8(codec))
                 throw Exception{"index: truncated block"};
             ref.codec = static_cast<BlockRef::Codec>(codec);
             loc.blocks.push_back(ref);

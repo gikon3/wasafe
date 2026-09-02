@@ -151,6 +151,7 @@ void IndexingBuilder::flushStream(std::uint32_t sid) {
                     .storedSize = static_cast<std::uint32_t>(stored.size()),
                     .rawSize = rawSize,
                     .crc32 = crc,
+                    .count = static_cast<std::uint32_t>(s.block.count()),
                     .codec = codec});
 
     writeRaw(stored);  // сам двигает offset_ и проверяет поток
