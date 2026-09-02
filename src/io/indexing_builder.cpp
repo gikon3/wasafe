@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "core/byte_io.hpp"
+#include "core/crc32.hpp"
 #include "io/hierarchy_codec.hpp"
 #include "io/store_layout.hpp"
 #include "wasafe/config.hpp"
@@ -73,10 +74,23 @@ void IndexingBuilder::writeRaw(std::span<const std::byte> data) {
 void IndexingBuilder::writeTrailer() {
     // Метаданные: иерархия и геометрия блоков. Без них файл не открыть, поэтому
     // ошибка записи фатальна.
+    //
+    // Каждая часть пишется отдельной секцией со своими магией, версией и длиной.
+    // Тело собирается в свой буфер, потому что длина известна только после
+    // записи, а стоит это ровно одной лишней копии метаданных в ОЗУ — они и так
+    // целиком в памяти.
+    std::vector<std::byte> hierarchy;
+    ByteWriter hw{hierarchy};
+    encodeHierarchy(hw, hierarchy_);
+
+    std::vector<std::byte> index;
+    ByteWriter iw{index};
+    index_.encode(iw);
+
     std::vector<std::byte> meta;
     ByteWriter mw{meta};
-    encodeHierarchy(mw, hierarchy_);
-    index_.encode(mw);
+    StoreLayout::writeSection(mw, StoreLayout::kHierarchyMagic, StoreLayout::kHierarchyVersion, hierarchy);
+    StoreLayout::writeSection(mw, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, index);
 
     const std::uint64_t metaOffset = offset_;
     writeRaw(meta);
@@ -85,6 +99,7 @@ void IndexingBuilder::writeTrailer() {
     ByteWriter fw{footer};
     fw.u64(metaOffset);
     fw.u64(static_cast<std::uint64_t>(meta.size()));
+    fw.u32(Crc32::compute(meta));  // тихое повреждение метаданных отличимо от обрыва записи
     fw.u32(StoreLayout::kFooterMagic);
     writeRaw(footer);
 }
@@ -124,6 +139,10 @@ void IndexingBuilder::flushStream(std::uint32_t sid) {
 
     std::vector<std::byte> raw = encodeBlock(s.block);
     const auto rawSize = static_cast<std::uint32_t>(raw.size());
+    // Сумма считается по РАСПАКОВАННЫМ байтам: так она не зависит от того, каким
+    // кодеком блок уляжется на диск, и проверяется ровно там, где данные уже
+    // готовы к разбору.
+    const std::uint32_t crc = Crc32::compute(raw);
     auto [stored, codec] = compressBlock(std::move(raw));
 
     index_.addBlock(SignalId{sid},
@@ -131,6 +150,7 @@ void IndexingBuilder::flushStream(std::uint32_t sid) {
                     .offset = offset_,
                     .storedSize = static_cast<std::uint32_t>(stored.size()),
                     .rawSize = rawSize,
+                    .crc32 = crc,
                     .codec = codec});
 
     writeRaw(stored);  // сам двигает offset_ и проверяет поток

@@ -1,6 +1,7 @@
 #include "wasafe/io/store.hpp"
 
 #include <cstddef>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "core/byte_io.hpp"
+#include "core/crc32.hpp"
 #include "io/hierarchy_codec.hpp"
 #include "io/store_layout.hpp"
 #include "wasafe/core/exception.hpp"
@@ -34,7 +36,7 @@ std::vector<std::byte> readAt(std::ifstream& in, std::uint64_t offset, std::size
 
 }  // namespace
 
-Database openStore(const std::filesystem::path& path, LazyStorageOptions opts) {
+Database openStore(const std::filesystem::path& path, LazyStorageOptions opts, bool verifyBlocks) {
     std::ifstream in{path, std::ios::binary | std::ios::ate};
     if (!in)
         throw Exception{"cannot open store: " + path.string()};
@@ -53,18 +55,24 @@ Database openStore(const std::filesystem::path& path, LazyStorageOptions opts) {
             throw Exception{"store: truncated header"};
         if (magic != StoreLayout::kMagic)
             throw Exception{"store: not a wasafe store: " + path.string()};
-        if (version != StoreLayout::kVersion)
-            throw Exception{"store: unsupported version: " + path.string()};
+        // Сравнивается только major: минорные приращения формата читаются
+        // вперёд-совместимо, неизвестный хвост секции пропускается по её длине.
+        if (StoreLayout::majorOf(version) != StoreLayout::kVersionMajor) {
+            throw Exception{
+                    std::format("store: unsupported version {}.{}, expected {}.x: {}", StoreLayout::majorOf(version),
+                            StoreLayout::minorOf(version), StoreLayout::kVersionMajor, path.string())};
+        }
     }
 
     // Футер в самом конце — точка входа: по нему находятся метаданные.
     std::uint64_t metaOffset = 0;
     std::uint64_t metaSize = 0;
+    std::uint32_t metaCrc = 0;
     {
         const auto raw = readAt(in, size - StoreLayout::kFooterSize, StoreLayout::kFooterSize, "footer");
         ByteReader r{raw};
         std::uint32_t magic = 0;
-        if (!r.u64(metaOffset) || !r.u64(metaSize) || !r.u32(magic))
+        if (!r.u64(metaOffset) || !r.u64(metaSize) || !r.u32(metaCrc) || !r.u32(magic))
             throw Exception{"store: truncated footer"};
         if (magic != StoreLayout::kFooterMagic)
             throw Exception{"store: incomplete, ingestion did not finish: " + path.string()};
@@ -75,11 +83,24 @@ Database openStore(const std::filesystem::path& path, LazyStorageOptions opts) {
     }
 
     const auto meta = readAt(in, metaOffset, static_cast<std::size_t>(metaSize), "metadata");
-    ByteReader r{meta};
-    Hierarchy hierarchy = decodeHierarchy(r);
-    SignalIndex index = SignalIndex::decode(r);
+    // Сумма проверяется ДО разбора: иначе тихое повреждение проявилось бы
+    // исключением в случайном месте кодека и было бы неотличимо от обрыва записи.
+    if (Crc32::compute(meta) != metaCrc)
+        throw Exception{"store: metadata checksum mismatch: " + path.string()};
+
+    std::size_t pos = 0;
+    const auto hierarchyBody = StoreLayout::readSection(meta, pos, StoreLayout::kHierarchyMagic,
+            StoreLayout::kHierarchyVersion, "hierarchy");
+    const auto indexBody =
+            StoreLayout::readSection(meta, pos, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, "index");
+
+    ByteReader hr{hierarchyBody};
+    Hierarchy hierarchy = decodeHierarchy(hr);
+    ByteReader ir{indexBody};
+    SignalIndex index = SignalIndex::decode(ir);
 
     auto source = FileBlockSource::open(path);
+    source->setVerifyChecksums(verifyBlocks);
     return Database{std::move(hierarchy), std::make_unique<LazyStorage>(std::move(index), std::move(source), opts)};
 }
 

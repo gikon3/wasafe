@@ -13,7 +13,9 @@ std::unique_ptr<FileBlockSource> FileBlockSource::open(const std::filesystem::pa
 }
 
 std::unique_ptr<BlockSource> FileBlockSource::duplicate() const {
-    return open(path_);  // новый дескриптор со своей позицией, а не копия ifstream
+    auto copy = open(path_);  // новый дескриптор со своей позицией, а не копия ifstream
+    copy->setVerifyChecksums(verifyChecksums());
+    return copy;
 }
 
 std::vector<std::byte> FileBlockSource::readBlock(const BlockRef& block) const {

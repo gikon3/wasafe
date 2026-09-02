@@ -12,6 +12,7 @@ add_executable(wasafe_tests
     test_time.cpp
     test_time_column.cpp
     test_byte_io.cpp
+    test_crc32.cpp
     test_hierarchy.cpp
     test_hierarchy_codec.cpp
     test_lazy_backend.cpp
@@ -36,7 +37,11 @@ set_target_properties(wasafe_tests PROPERTIES
 # так же, как их видит сама библиотека.
 target_include_directories(wasafe_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
-target_link_libraries(wasafe_tests PRIVATE wasafe::wasafe GTest::gtest_main)
+target_link_libraries(wasafe_tests
+    PRIVATE
+    wasafe::wasafe
+    GTest::gtest_main
+    GTest::gmock)
 
 include(GoogleTest)
 gtest_discover_tests(wasafe_tests)

@@ -24,6 +24,10 @@ struct BlockRef {
     std::uint64_t cookie = 0;
     std::uint32_t storedSize = 0;  ///< размер на диске (возможно, сжатый)
     std::uint32_t rawSize = 0;     ///< размер после распаковки
+    /// Контрольная сумма РАСПАКОВАННОГО содержимого блока. Поле необязательное,
+    /// и НОЛЬ означает «не задано»: заполняет его тот, кто пишет наш store, а
+    /// источник чужого формата (FST) суммы не считает.
+    std::uint32_t crc32 = 0;
     enum class Codec : std::uint8_t { NONE, ZSTD, LZ4, ZLIB } codec = Codec::NONE;
 };
 

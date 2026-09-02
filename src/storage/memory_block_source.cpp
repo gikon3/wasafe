@@ -18,6 +18,7 @@ std::vector<std::byte> MemoryBlockSource::readBlock(const BlockRef& block) const
 std::unique_ptr<BlockSource> MemoryBlockSource::duplicate() const {
     auto copy = std::make_unique<MemoryBlockSource>();
     copy->blocks_ = blocks_;  // байты разделяются, копировать их незачем
+    copy->setVerifyChecksums(verifyChecksums());
     return copy;
 }
 

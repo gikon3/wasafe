@@ -29,9 +29,9 @@ void SignalIndex::addBlock(SignalId id, BlockRef block) {
 }
 
 // ---------------------------------------------------------------------------
-// Сериализация: секция в общем потоке файла store. Собственных магии и версии у
-// секции нет — их несёт заголовок файла, и два независимых номера версии только
-// разъезжались бы.
+// Сериализация: тело секции 'WSFI' в файле store. Магию, версию и длину секции
+// пишет вокруг этих байт слой раскладки (см. src/io/store_layout.hpp) — кодеку
+// остаётся только содержимое.
 // ---------------------------------------------------------------------------
 void SignalIndex::encode(ByteWriter& w) const {
     w.i64(timeRange_.begin);
@@ -50,6 +50,7 @@ void SignalIndex::encode(ByteWriter& w) const {
             w.u64(b.cookie);
             w.u32(b.storedSize);
             w.u32(b.rawSize);
+            w.u32(b.crc32);
             w.u8(static_cast<std::uint8_t>(b.codec));
         }
     }
@@ -79,7 +80,7 @@ SignalIndex SignalIndex::decode(ByteReader& r) {
             BlockRef ref{};
             std::uint8_t codec = 0;
             if (!r.i64(ref.time.begin) || !r.i64(ref.time.end) || !r.u64(ref.offset) || !r.u64(ref.cookie) ||
-                    !r.u32(ref.storedSize) || !r.u32(ref.rawSize) || !r.u8(codec))
+                    !r.u32(ref.storedSize) || !r.u32(ref.rawSize) || !r.u32(ref.crc32) || !r.u8(codec))
                 throw Exception{"index: truncated block"};
             ref.codec = static_cast<BlockRef::Codec>(codec);
             loc.blocks.push_back(ref);
