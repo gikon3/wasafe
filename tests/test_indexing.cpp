@@ -1,8 +1,10 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -11,6 +13,8 @@
 #include <vector>
 
 #include "core/byte_io.hpp"
+#include "core/crc32.hpp"
+#include "io/store_layout.hpp"
 #include "wasafe/config.hpp"
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/store.hpp"
@@ -89,6 +93,71 @@ void writeWhole(const std::filesystem::path& path, std::span<const std::byte> da
     out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
 }
 
+/// Текст исключения: тесты формата проверяют не только факт отказа, но и то, что
+/// «повреждён» отличимо от «недописан» — ради этого пункт и делался.
+std::string messageOf(const std::function<void()>& fn) {
+    try {
+        fn();
+    }
+    catch (const Exception& e) {
+        return e.what();
+    }
+    return "<исключения не было>";
+}
+
+/// Разобранный образ store: блоки как есть плюс тела секций метаданных. Нужен
+/// тестам, которые пересобирают файл — из будущей версии, с чужой магией секции,
+/// с испорченным байтом.
+struct StoreImage {
+    std::vector<std::byte> bytes;      ///< файл целиком
+    std::uint64_t metaOffset = 0;      ///< где кончаются блоки
+    std::vector<std::byte> hierarchy;  ///< тело секции 'WSFH'
+    std::vector<std::byte> index;      ///< тело секции 'WSFI'
+};
+
+StoreImage readStoreImage(const std::filesystem::path& path) {
+    StoreImage img;
+    img.bytes = readWhole(path);
+
+    ByteReader fr{std::span{img.bytes}.last(StoreLayout::kFooterSize)};
+    std::uint64_t metaSize = 0;
+    std::uint32_t crc = 0;
+    std::uint32_t magic = 0;
+    EXPECT_TRUE(fr.u64(img.metaOffset) && fr.u64(metaSize) && fr.u32(crc) && fr.u32(magic));
+    EXPECT_EQ(magic, StoreLayout::kFooterMagic);
+
+    const auto meta =
+            std::span{img.bytes}.subspan(static_cast<std::size_t>(img.metaOffset), static_cast<std::size_t>(metaSize));
+    EXPECT_EQ(Crc32::compute(meta), crc) << "эталонный store уже не сходится сам с собой";
+
+    std::size_t pos = 0;
+    const auto h = StoreLayout::readSection(meta, pos, StoreLayout::kHierarchyMagic, StoreLayout::kHierarchyVersion,
+            "hierarchy");
+    const auto i = StoreLayout::readSection(meta, pos, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, "index");
+    img.hierarchy.assign(h.begin(), h.end());
+    img.index.assign(i.begin(), i.end());
+    return img;
+}
+
+/// Собрать store заново из тех же блоков и заданных секций. Футер считается по
+/// факту, поэтому подделать можно ровно то, что тест меняет намеренно.
+void writeStoreWith(const std::filesystem::path& path, const StoreImage& img, std::uint32_t hierarchyMagic,
+        std::uint32_t hierarchyVersion, std::span<const std::byte> hierarchy) {
+    std::vector<std::byte> meta;
+    ByteWriter mw{meta};
+    StoreLayout::writeSection(mw, hierarchyMagic, hierarchyVersion, hierarchy);
+    StoreLayout::writeSection(mw, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, img.index);
+
+    std::vector<std::byte> out{img.bytes.begin(), img.bytes.begin() + static_cast<std::ptrdiff_t>(img.metaOffset)};
+    ByteWriter ow{out};
+    ow.bytes(meta);
+    ow.u64(img.metaOffset);
+    ow.u64(static_cast<std::uint64_t>(meta.size()));
+    ow.u32(Crc32::compute(meta));
+    ow.u32(StoreLayout::kFooterMagic);
+    writeWhole(path, out);
+}
+
 }  // namespace
 
 // SignalIndex: секция пишется и читается без потерь
@@ -97,7 +166,13 @@ TEST(Indexing, SectionRoundtrip) {
     idx.setTimeScale({.exponent = -9, .scale = 10});
     idx.setTimeRange({0, 1000});
     idx.addBlock(SignalId{0},
-            BlockRef{.time = {0, 500}, .offset = 0, .storedSize = 128, .rawSize = 256, .codec = BlockRef::Codec::ZSTD});
+            BlockRef{.time = {0, 500},
+                    .offset = 0,
+                    .storedSize = 128,
+                    .rawSize = 256,
+                    .crc32 = 0xDEAD'BEEFu,
+                    .count = 17,
+                    .codec = BlockRef::Codec::ZSTD});
     idx.addBlock(SignalId{0},
             BlockRef{.time = {500, 1000}, .offset = 128, .cookie = 42, .storedSize = 64, .rawSize = 200});
     idx.addBlock(SignalId{7}, BlockRef{.time = {0, 1000}, .offset = 192, .storedSize = 300, .rawSize = 300});
@@ -122,6 +197,10 @@ TEST(Indexing, SectionRoundtrip) {
     EXPECT_EQ(l0->blocks[0].rawSize, 256u);
     EXPECT_EQ(l0->blocks[0].codec, BlockRef::Codec::ZSTD);
     EXPECT_EQ(l0->blocks[0].cookie, 0u);
+    EXPECT_EQ(l0->blocks[0].crc32, 0xDEAD'BEEFu);
+    EXPECT_EQ(l0->blocks[0].count, 17u);
+    EXPECT_EQ(l0->blocks[1].crc32, 0u) << "незаполненные поля остаются нулём";
+    EXPECT_EQ(l0->blocks[1].count, 0u);
     EXPECT_EQ(l0->blocks[1].offset, 128u);
     EXPECT_EQ(l0->blocks[1].cookie, 42u);  // непрозрачное поле переживает запись
 
@@ -509,7 +588,164 @@ TEST(Indexing, OpenStoreRejectsBadFiles) {
     TempPath const bent{"wasafe_bent.wsfstore"};
     std::vector<std::byte> bentImage = image;
     for (std::size_t i = 0; i < 8; ++i)
-        bentImage[bentImage.size() - 20 + i] = std::byte{0xFF};  // metaOffset = огромный
+        bentImage[bentImage.size() - StoreLayout::kFooterSize + i] = std::byte{0xFF};  // metaOffset = огромный
     writeWhole(bent.path, bentImage);
     EXPECT_THROW((void)openStore(bent.path), Exception);
+
+    // Store прежней раскладки версии: там она была одним числом, а не парой
+    // major.minor, поэтому единица читается как major 0 и отвергается.
+    TempPath const old{"wasafe_old.wsfstore"};
+    std::vector<std::byte> oldImage = image;
+    oldImage[4] = std::byte{1};
+    oldImage[5] = std::byte{0};
+    oldImage[6] = std::byte{0};
+    oldImage[7] = std::byte{0};
+    writeWhole(old.path, oldImage);
+    EXPECT_THAT(messageOf([&] { (void)openStore(old.path); }), testing::HasSubstr("unsupported version 0.1"));
+}
+
+// Тихое повреждение метаданных — не то же самое, что оборванная запись, и
+// сообщение обязано их различать: футер на месте, длины сходятся, испорчен байт
+// внутри секции.
+TEST(Indexing, CorruptMetadataIsDetected) {
+    TempPath const src{"wasafe_rot_meta.wsfstore"};
+    writeSmallStore(src.path);
+
+    StoreImage img = readStoreImage(src.path);
+    ASSERT_FALSE(img.hierarchy.empty());
+
+    TempPath const rotten{"wasafe_rot_meta_bad.wsfstore"};
+    // writeStoreWith считает сумму по факту, поэтому портить надо уже готовый
+    // файл — один бит в теле секции иерархии, футер и длины при этом целы.
+    writeStoreWith(rotten.path, img, StoreLayout::kHierarchyMagic, StoreLayout::kHierarchyVersion, img.hierarchy);
+    std::vector<std::byte> image = readWhole(rotten.path);
+    const auto body = static_cast<std::size_t>(img.metaOffset) + StoreLayout::kSectionHeaderSize;
+    image[body + img.hierarchy.size() / 2] ^= std::byte{0x20};
+    writeWhole(rotten.path, image);
+
+    EXPECT_THAT(messageOf([&] { (void)openStore(rotten.path); }), testing::HasSubstr("metadata checksum mismatch"));
+}
+
+// Хвост, дописанный секции в минорной версии, читается вперёд-совместимо:
+// известное начало разбирается, лишнее пропускается по длине секции.
+TEST(Indexing, FutureMinorSectionTailIsSkipped) {
+    TempPath const src{"wasafe_future_src.wsfstore"};
+    writeSmallStore(src.path);
+    const StoreImage img = readStoreImage(src.path);
+
+    std::vector<std::byte> hierarchy = img.hierarchy;
+    ByteWriter hw{hierarchy};
+    hw.str("поле, о котором эта версия ничего не знает");
+
+    TempPath const future{"wasafe_future.wsfstore"};
+    const auto futureMinor = static_cast<std::uint16_t>(StoreLayout::minorOf(StoreLayout::kHierarchyVersion) + 1);
+    writeStoreWith(future.path, img, StoreLayout::kHierarchyMagic,
+            StoreLayout::makeVersion(StoreLayout::majorOf(StoreLayout::kHierarchyVersion), futureMinor), hierarchy);
+
+    const Database db = openStore(future.path);
+    const auto data = db.find("top.data");
+    ASSERT_TRUE(data.has_value());
+    EXPECT_EQ(data->valueAt(10).asLogic().toString(), "0011");
+}
+
+// Блоки суммой по умолчанию не проверяются: это диагностический режим. Включённый
+// — ловит порчу значений ДО разбора, иначе испорченные байты дают либо случайную
+// ошибку формата, либо тихий мусор вместо значения.
+TEST(Indexing, VerifiedBlockChecksumCatchesRot) {
+    TempPath const tmp{"wasafe_rot_block.wsfstore"};
+    writeSmallStore(tmp.path);
+
+    // Нужен НЕсжатый блок: у сжатого порча почти всегда всплыла бы ошибкой zstd,
+    // и тест проверял бы не сумму, а распаковку.
+    BlockRef ref{};
+    {
+        const Database probe = openStore(tmp.path);
+        const SignalLocator* loc = indexOfReopened(probe).locate(SignalId{0});
+        ASSERT_NE(loc, nullptr);
+        ASSERT_FALSE(loc->blocks.empty());
+        ref = loc->blocks.front();
+    }
+    ASSERT_EQ(ref.codec, BlockRef::Codec::NONE);
+    ASSERT_NE(ref.crc32, 0u) << "builder обязан заполнять сумму блока";
+
+    // Хвост блока — это план значений: разбор его переживёт, а сумма нет.
+    std::vector<std::byte> image = readWhole(tmp.path);
+    image[static_cast<std::size_t>(ref.offset) + ref.storedSize - 1] ^= std::byte{0x01};
+    writeWhole(tmp.path, image);
+
+    // Метаданные целы, поэтому открывается файл в обоих режимах одинаково.
+    const Database plain = openStore(tmp.path);
+    EXPECT_NO_THROW((void)plain.find("top.data")->valueAt(10)) << "без проверки чтение не спотыкается";
+
+    const Database checked = openStore(tmp.path, {}, /*verifyBlocks*/ true);
+    EXPECT_THAT(messageOf([&] { (void)checked.find("top.data")->valueAt(10); }),
+            testing::HasSubstr("checksum mismatch"));
+
+    // Дубликат БД читает те же байты в другом потоке — проверка обязана уехать
+    // вместе с ним, иначе она отключалась бы молча.
+    const Database copy = checked.duplicate();
+    EXPECT_THAT(messageOf([&] { (void)copy.find("top.data")->valueAt(10); }), testing::HasSubstr("checksum mismatch"));
+}
+
+// Число изменений в блоке пишется в индекс: оно даёт оценку плотности без
+// распаковки и обязано пережить переоткрытие.
+TEST(Indexing, BlockCountSurvivesReopen) {
+    TempPath const tmp{"wasafe_block_count.wsfstore"};
+
+    constexpr std::uint32_t kChanges = 5;
+    {
+        auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
+        b->beginScope("top", ScopeKind::MODULE);
+        const SignalId d = b->declareVar("data", makeVector(3, 0));
+        b->endScope();
+        b->headerDone();
+
+        const LogicScratch v{4, "0101"};
+        for (std::uint32_t i = 0; i < kChanges; ++i) {
+            b->setTime(static_cast<TimeStamp>(i) * 10);
+            b->valueChange(d, v.view());
+        }
+        b->finish();
+        std::ignore = b->takeDatabase();
+    }
+
+    const Database db = openStore(tmp.path);
+    const SignalLocator* loc = indexOfReopened(db).locate(SignalId{0});
+    ASSERT_NE(loc, nullptr);
+    EXPECT_EQ(loc->blocks.size(), 3u);  // 5 изменений по 2 на блок
+
+    std::uint32_t total = 0;
+    for (const BlockRef& ref : loc->blocks) {
+        EXPECT_GT(ref.count, 0u);
+        EXPECT_LE(ref.count, 2u) << "блок не может нести больше, чем blockChanges";
+        total += ref.count;
+    }
+    EXPECT_EQ(total, kChanges);
+
+    // И это то же число, что выдаёт курсор: индекс не расходится с данными.
+    std::uint32_t seen = 0;
+    auto cur = db.find("top.data")->changes({0, 100});
+    while (cur.next())
+        ++seen;
+    EXPECT_EQ(seen, kChanges);
+}
+
+// А вот чужой major секции — отказ, и по сообщению видно, какая секция и какая
+// версия, а не «truncated» в случайном месте разбора.
+TEST(Indexing, ForeignSectionIsRejected) {
+    TempPath const src{"wasafe_section_src.wsfstore"};
+    writeSmallStore(src.path);
+    const StoreImage img = readStoreImage(src.path);
+
+    TempPath const newer{"wasafe_section_major.wsfstore"};
+    const auto nextMajor = static_cast<std::uint16_t>(StoreLayout::majorOf(StoreLayout::kHierarchyVersion) + 1);
+    writeStoreWith(newer.path, img, StoreLayout::kHierarchyMagic, StoreLayout::makeVersion(nextMajor, 0),
+            img.hierarchy);
+    EXPECT_THAT(messageOf([&] { (void)openStore(newer.path); }),
+            testing::HasSubstr("unsupported hierarchy section version 2.0"));
+
+    // Секции перепутаны местами — ловится магией, а не разбором тела.
+    TempPath const swapped{"wasafe_section_magic.wsfstore"};
+    writeStoreWith(swapped.path, img, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, img.hierarchy);
+    EXPECT_THAT(messageOf([&] { (void)openStore(swapped.path); }), testing::HasSubstr("bad hierarchy section magic"));
 }

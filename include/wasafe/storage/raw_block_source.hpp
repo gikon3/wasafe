@@ -28,6 +28,14 @@ public:
     /// блок принадлежит ровно одному потоку и адресуется ссылкой полностью.
     [[nodiscard]] DecodedBlock decode(SignalId id, const BlockRef& ref) const override;
 
+    /// Сверять ли прочитанный блок с тем, что о нём говорит индекс:
+    /// контрольную сумму (BlockRef::crc32) и число изменений (BlockRef::count).
+    ///
+    /// Дубликат источника наследует этот флаг: иначе размноженная по потокам БД
+    /// молча читала бы мимо проверки.
+    void setVerifyChecksums(bool on) noexcept { verify_ = on; }
+    [[nodiscard]] bool verifyChecksums() const noexcept { return verify_; }
+
 protected:
     RawBlockSource() = default;
     RawBlockSource(const RawBlockSource&) = default;
@@ -35,6 +43,9 @@ protected:
 
     RawBlockSource& operator=(const RawBlockSource&) = default;
     RawBlockSource& operator=(RawBlockSource&&) = default;
+
+private:
+    bool verify_ = false;
 };
 
 }  // namespace WaSafe

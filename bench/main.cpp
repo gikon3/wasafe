@@ -1,6 +1,7 @@
 // Замеры ленивого пути wasafe. Прогоны секундного масштаба на синтетическом
 // дампе: разбор источника, повторное открытие, обходы курсором, точечные
-// запросы. Все случаи детерминированы (фиксированное зерно генератора).
+// запросы, стоимость контрольных сумм. Все случаи детерминированы
+// (фиксированное зерно генератора).
 //
 //   wasafe-bench                 все случаи, таблица для чтения
 //   wasafe-bench --csv           то же машиночитаемо
@@ -8,17 +9,20 @@
 //   wasafe-bench --scale=0.25    короче прогон (масштабируется длительность)
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <print>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <tuple>
 #include <vector>
 
+#include "core/crc32.hpp"
 #include "report.hpp"
 #include "wasafe/io/store.hpp"
 #include "wasafe/storage/database.hpp"
@@ -387,6 +391,85 @@ void benchBlockSize(Bench::Report& report, const Options& opts) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Пропускная способность самой контрольной суммы. Меряется отдельно от store,
+// потому что это единственная цифра, по которой выбирается способ счёта: цена в
+// ingest и в сверке блоков — уже её производные. Размеры взяты вокруг типичного
+// блока (4096 изменений — это десятки килобайт).
+// ---------------------------------------------------------------------------
+void benchCrc32(Bench::Report& report, const Options& opts) {
+    if (!wanted(opts, "crc32"))
+        return;
+
+    // Содержимое на скорость CRC не влияет, но одинаковые байты соблазняют
+    // оптимизатор свернуть вычисление.
+    std::vector<std::byte> buf(1u << 20);
+    Rng rng{2024};
+    for (std::byte& b : buf)
+        b = static_cast<std::byte>(rng.next() & 0xFFu);
+
+    const auto budget = static_cast<double>(512u << 20) * opts.scale;  // байт на случай
+
+    for (const std::size_t size : {std::size_t{4096}, std::size_t{65536}, std::size_t{1u << 20}}) {
+        const std::span<const std::byte> data{buf.data(), size};
+        const auto iters = std::max<std::size_t>(1, static_cast<std::size_t>(budget) / size);
+
+        // Цепочка по crc: результат каждой итерации — начальное значение
+        // следующей. Без неё компилятор видит, что вызов чистый и аргумент один
+        // и тот же, выносит его из цикла, и замер показывает сотни ТБ/с.
+        std::uint32_t crc = Crc32::kInit;
+        const Bench::Timer timer;
+        for (std::size_t i = 0; i < iters; ++i)
+            crc = Crc32::update(crc, data);
+        const double ms = timer.ms();
+
+        const double bytes = static_cast<double>(size) * static_cast<double>(iters);
+        report.add(std::format("crc32_{}KiB", size / 1024))
+                .num("GB/s", bytes / (ms / 1000.0) / 1e9, 2)
+                .num("ms", ms)
+                .num("checksum", static_cast<double>(crc % 100000), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Сквозная цена включённой сверки блоков: тот же обход по тем же данным,
+// отличается только verifyBlocks. По этой колонке видно, можно ли когда-нибудь
+// включить проверку по умолчанию.
+// ---------------------------------------------------------------------------
+void benchVerifyBlocks(Bench::Report& report, const Options& opts, const std::filesystem::path& corpus) {
+    if (!wanted(opts, "verify"))
+        return;
+
+    const auto sweep = [&corpus](bool verify, std::uint64_t& seen) {
+        const Database db = openStore(corpus, {}, verify);
+        const Leaves leaves = leavesOf(db);
+        const std::size_t n = std::min<std::size_t>(64, leaves.nodes.size());
+        const std::span<const NodeId> nodes{leaves.nodes.data(), n};
+
+        const Bench::Timer timer;
+        auto cur = db.changes(nodes, db.timeRange());
+        while (cur.next())
+            seen = mix(seen, static_cast<std::uint64_t>(cur->time));
+        return timer.ms();
+    };
+
+    // Холостой проход: иначе первый замер платит за прогрев page cache, и
+    // накладные сверки вышли бы заниженными.
+    std::uint64_t warmSeen = 0;
+    std::ignore = sweep(false, warmSeen);
+
+    std::uint64_t plainSeen = 0;
+    const double plainMs = sweep(false, plainSeen);
+    std::uint64_t verifySeen = 0;
+    const double verifyMs = sweep(true, verifySeen);
+
+    report.add("verify_blocks")
+            .num("plain_ms", plainMs)
+            .num("verify_ms", verifyMs)
+            .num("overhead", verifyMs / plainMs, 2)
+            .text("checksum", plainSeen == verifySeen ? "ok" : "РАЗОШЁЛСЯ");
+}
+
 /// Тело замеров. Исключения ловит main: наружу из него они выходить не должны,
 /// а завершение через std::terminate прячет причину.
 int run(int argc, char** argv) {
@@ -417,9 +500,12 @@ int run(int argc, char** argv) {
     Bench::Report report;
     const TempStore corpus{"wasafe_bench_corpus.wsfstore"};
 
-    // Корпус нужен всем случаям чтения, поэтому пишется всегда — даже если сам
-    // случай ingest_store отфильтрован.
-    if (!wanted(opts, "ingest_store"))
+    // Корпус нужен случаям чтения, а ingest_store пишет его сам. Если не
+    // запрошено ни того, ни другого (скажем, --only=crc32), не пишем вовсе:
+    // это секунды на пустом месте.
+    const bool corpusNeeded =
+            wanted(opts, "cursor") || wanted(opts, "prefetch") || wanted(opts, "value_at") || wanted(opts, "verify");
+    if (corpusNeeded && !wanted(opts, "ingest_store"))
         std::ignore = writeStore(corpus.path, spec, 4096);
 
     benchIngest(report, opts, corpus.path);
@@ -428,6 +514,8 @@ int run(int argc, char** argv) {
     benchPrefetch(report, opts, corpus.path);
     benchValueAt(report, opts, corpus.path);
     benchBlockSize(report, opts);
+    benchCrc32(report, opts);
+    benchVerifyBlocks(report, opts, corpus.path);
 
     report.print(opts.csv);
     return 0;
