@@ -207,6 +207,7 @@ class Database {
     --
     + timeRange() / timeScale()
     + hierarchy() : const Hierarchy&
+    + storage() const : const Storage&
     + storage()   : Storage&
     --
     «навигация:»
