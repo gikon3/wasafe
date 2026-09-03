@@ -40,13 +40,10 @@ private:
 };
 
 /// Вырезать [offset, offset+width) из logic-значения предка. Выход за ширину
-/// источника не проверяется намеренно: LogicVectorView::operator[] отдаёт на
-/// таких битах Logic::X, что и есть верный ответ для «биты не записаны».
+/// источника не проверяется намеренно: на таких битах верный ответ — Logic::X
+/// («биты не записаны»).
 LogicVector extractSlice(LogicVectorView src, BitSlice slice) {
-    LogicVector lv{slice.width};
-    for (std::uint32_t i = 0; i < slice.width; ++i)
-        lv.set(i, src[slice.offset + i]);
-    return lv;
+    return LogicVector::fromSlice(src, slice.offset, slice.width);
 }
 
 /// Курсор поверх курсора потока-предка: вырезает BitSlice и отбрасывает записи,

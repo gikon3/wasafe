@@ -1,5 +1,6 @@
 target_sources(wasafe
     PRIVATE
+    bit_planes.cpp
     database.cpp
     decoded_block.cpp
     decompress.cpp

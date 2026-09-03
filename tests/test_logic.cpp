@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstdint>
+
 #include "wasafe/core/exception.hpp"
 #include "wasafe/types/value.hpp"
 
@@ -301,4 +304,77 @@ TEST(Logic, RadixUnknownThrows) {
     const LogicVector empty;
     // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     EXPECT_NO_THROW((void)empty.toString(static_cast<Radix>(99)));
+}
+
+// --- Срез бит-планов --------------------------------------------------------
+namespace {
+
+/// Эталон для fromSlice: тот самый поразрядный цикл, который она заменила.
+/// LogicVectorView::operator[] покрыт отдельно, поэтому годится в оракулы.
+LogicVector sliceBitByBit(LogicVectorView src, std::uint32_t offset, std::uint32_t width) {
+    LogicVector out{width};
+    for (std::uint32_t i = 0; i < width; ++i)
+        out.set(i, src[offset + i]);
+    return out;
+}
+
+/// Детерминированный вектор из всех четырёх значений, шире одного слова.
+LogicVector patternVector(std::uint32_t width) {
+    constexpr std::array<Logic, 4> kCycle{Logic::ZERO, Logic::ONE, Logic::X, Logic::Z};
+    LogicVector v{width};
+    for (std::uint32_t i = 0; i < width; ++i)
+        v.set(i, kCycle[(i * 7u + i / 5u) % kCycle.size()]);
+    return v;
+}
+
+}  // namespace
+
+// Пословная склейка обязана совпасть с поразрядным чтением на любом смещении,
+// включая нулевой сдвиг, сдвиг через границу слова и срез длиннее слова.
+// Сравнение через operator== — оно смотрит на СЛОВА, поэтому заодно ловит
+// незанулённый хвост последнего слова.
+TEST(Logic, SliceMatchesPerBitRead) {
+    const LogicVector src = patternVector(200);
+
+    for (const std::uint32_t offset : {0u, 1u, 31u, 63u, 64u, 65u, 100u, 127u, 128u, 129u, 199u}) {
+        for (const std::uint32_t width : {1u, 2u, 7u, 31u, 63u, 64u, 65u, 70u, 128u, 130u}) {
+            const LogicVector cut = LogicVector::fromSlice(src, offset, width);
+            EXPECT_EQ(cut, sliceBitByBit(src, offset, width))
+                    << "offset=" << offset << " width=" << width << " got=" << cut.toString();
+        }
+    }
+}
+
+// Хвост за шириной источника — X, ровно как у LogicVectorView::operator[].
+TEST(Logic, SliceBeyondSourceWidthIsX) {
+    LogicVector src{6};
+    src.assignFromChars("101101");
+
+    EXPECT_EQ(LogicVector::fromSlice(src, 4, 4).toString(), "xx10");
+    EXPECT_EQ(LogicVector::fromSlice(src, 6, 3).toString(), "xxx");  // весь срез за источником
+    EXPECT_EQ(LogicVector::fromSlice(src, 99, 2).toString(), "xx");  // смещение далеко за источником
+    EXPECT_EQ(LogicVector::fromSlice(src, 0, 0).width(), 0u);        // пустой срез
+}
+
+// Двухзначный вид bval-плана не хранит: срез обязан читать его как нули, а не
+// лезть в пустой span.
+TEST(Logic, SliceOfTwoStateViewWithoutBvalPlane) {
+    const std::array<std::uint64_t, 2> aval{0xF0F0'F0F0'F0F0'F0F0ull, 0b1011};
+    const LogicVectorView v{aval.data(), nullptr, 68};
+
+    const LogicVector cut = LogicVector::fromSlice(v, 60, 8);
+    EXPECT_TRUE(cut.isTwoState());
+    EXPECT_EQ(cut, sliceBitByBit(v, 60, 8));
+    EXPECT_EQ(cut.toString(), "10111111");  // 4 старших бита слова 0 + 0b1011
+}
+
+// Чужой вид не обязан занулять разряды слова за своей шириной. В срез они
+// протечь не должны: за width() источника ответ — X, независимо от мусора.
+TEST(Logic, SliceIgnoresGarbageBeyondSourceWidth) {
+    const std::array<std::uint64_t, 1> aval{0b1010'0101};  // ширина 4, старшие разряды — мусор
+    const LogicVectorView v{aval.data(), nullptr, 4};
+
+    EXPECT_EQ(LogicVector::fromSlice(v, 0, 8).toString(), "xxxx0101");
+    EXPECT_EQ(LogicVector::fromSlice(v, 0, 8), sliceBitByBit(v, 0, 8));
+    EXPECT_EQ(LogicVector::fromSlice(v, 2, 4), sliceBitByBit(v, 2, 4));
 }

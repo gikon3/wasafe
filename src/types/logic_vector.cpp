@@ -1,11 +1,60 @@
 #include "wasafe/types/logic_vector.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <format>
+#include <span>
 
 #include "wasafe/core/exception.hpp"
 
 namespace WaSafe {
+
+namespace {
+
+using WordType = LogicVector::WordType;
+
+/// Слово плана; за концом плана — ноль. Ноль верен для обоих случаев выхода:
+/// двухзначный вид bval не хранит вовсе, а слова за шириной источника всё равно
+/// перезапишет заполнение X ниже — его же чужой вид и не обязан занулять.
+[[nodiscard]] WordType planeWord(std::span<const WordType> plane, std::size_t index) noexcept {
+    return index < plane.size() ? plane[index] : 0;
+}
+
+}  // namespace
+
+LogicVector LogicVector::fromSlice(LogicVectorView src, std::uint32_t offset, std::uint32_t width) {
+    LogicVector out{width};
+    if (width == 0)
+        return out;
+
+    const std::span<const WordType> a = src.aval();
+    const std::span<const WordType> b = src.bval();  // пуст у двухзначного вида
+    const std::uint32_t words = LogicVectorView::wordsFor(width);
+    const std::size_t first = offset / LogicVectorView::kWordWidth;
+    const std::uint32_t shift = offset % LogicVectorView::kWordWidth;
+
+    for (std::uint32_t k = 0; k < words; ++k) {
+        const std::size_t w = first + k;
+        out.a_[k] = planeWord(a, w) >> shift;
+        out.b_[k] = planeWord(b, w) >> shift;
+        if (shift != 0) {
+            const std::uint32_t back = LogicVectorView::kWordWidth - shift;
+            out.a_[k] |= planeWord(a, w + 1) << back;
+            out.b_[k] |= planeWord(b, w + 1) << back;
+        }
+    }
+
+    // За шириной источника верный ответ — X (a=1, b=1): «биты не записаны».
+    // Присваивание, а не ИЛИ, поэтому мусор старших разрядов чужого вида сюда и
+    // не протекает. Цикл поразрядный намеренно: он работает лишь на срезе,
+    // выходящем за источник, то есть в редком случае.
+    const std::uint32_t have = offset < src.width() ? std::min(width, src.width() - offset) : 0;
+    for (std::uint32_t i = have; i < width; ++i)
+        out[i] = Logic::X;
+
+    out.clearTailBits();
+    return out;
+}
 
 void LogicVector::set(std::uint32_t bit, Logic v) {
     if (bit >= width_)

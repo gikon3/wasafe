@@ -555,10 +555,151 @@ TEST(Memory, NarrowValueFillsTailWithX) {
     b->finish();
     const Database db = b->takeDatabase();
 
-    const auto bus_ = db.find("top.bus");
-    ASSERT_TRUE(bus_);
-    EXPECT_EQ(bus_->valueAt(0).asLogic().toString(), "00001111");
+    const auto sig = db.find("top.bus");
+    ASSERT_TRUE(sig);
+    EXPECT_EQ(sig->valueAt(0).asLogic().toString(), "00001111");
     // Хвост — «биты не записаны», то есть X: та же семантика, что у
     // LogicVectorView::operator[] за пределами ширины.
-    EXPECT_EQ(bus_->valueAt(10).asLogic().toString(), "xxxx1010");
+    EXPECT_EQ(sig->valueAt(10).asLogic().toString(), "xxxx1010");
+}
+
+// Поток шире одного слова: append копирует бит-планы словами, а срез члена,
+// пересекающего границу 64 бит, склеивает соседние слова сдвигом. Значения
+// содержат все четыре состояния — b-план участвует наравне с a-планом.
+TEST(Memory, WideStreamAndSliceAcrossWordBoundary) {
+    constexpr std::uint32_t kWidth = 100;
+
+    // Детерминированный узор из 0/1/x/z, старший разряд слева.
+    std::string bits;
+    for (std::uint32_t i = 0; i < kWidth; ++i)
+        bits.push_back("01xz"[(i * 3u + i / 7u) % 4u]);
+
+    // Подстрока члена [offset, offset+width) в записи «MSB слева».
+    const auto member = [&bits](std::uint32_t offset, std::uint32_t width) {
+        return bits.substr(bits.size() - offset - width, width);
+    };
+
+    auto b = makeMemoryBuilder();
+    b->beginScope("top", ScopeKind::MODULE);
+    Type const wideT = makeStruct(
+            {
+                    StructMember{"hi", makeVector(15, 0), /*bit_offset*/ 84},   // 84..99
+                    StructMember{"mid", makeVector(23, 0), /*bit_offset*/ 60},  // 60..83, через границу слова
+                    StructMember{"lo", makeVector(59, 0), /*bit_offset*/ 0},    // 0..59
+            },
+            /*packed=*/true);
+    const SignalId w = b->declareVar("w", wideT);
+    b->endScope();
+    b->headerDone();
+
+    // Второе значение отличается ровно одним битом внутри mid: остальные члены
+    // изменением считаться не должны.
+    std::string other = bits;
+    other[other.size() - 1 - 70] = other[other.size() - 1 - 70] == '1' ? '0' : '1';
+
+    b->setTime(0);
+    b->valueChange(w, LogicScratch{kWidth, bits}.view());
+    b->setTime(10);
+    b->valueChange(w, LogicScratch{kWidth, other}.view());
+    b->finish();
+    auto db = b->takeDatabase();
+
+    // Весь поток вернулся разряд в разряд: члены объявлены от старших битов к
+    // младшим и покрывают ширину целиком, поэтому агрегат склеивается в исходную
+    // строку.
+    const auto whole = db.find("top.w");
+    ASSERT_TRUE(whole);
+    const auto joined = [](const Value& v) {
+        std::string out;
+        for (const Value& part : v.asAggregate())
+            out += part.asLogic().toString();
+        return out;
+    };
+    EXPECT_EQ(joined(whole->valueAt(0)), bits);
+    EXPECT_EQ(joined(whole->valueAt(10)), other);
+
+    const auto hi = db.find("top.w.hi");
+    const auto mid = db.find("top.w.mid");
+    const auto lo = db.find("top.w.lo");
+    ASSERT_TRUE(hi);
+    ASSERT_TRUE(mid);
+    ASSERT_TRUE(lo);
+
+    EXPECT_EQ(hi->valueAt(0).asLogic().toString(), member(84, 16));
+    EXPECT_EQ(mid->valueAt(0).asLogic().toString(), member(60, 24));
+    EXPECT_EQ(lo->valueAt(0).asLogic().toString(), member(0, 60));
+
+    // Изменился только mid — у остальных членов второй записи нет.
+    const auto times = [](ValueCursor cur) {
+        std::vector<TimeStamp> out;
+        while (cur.next())
+            out.push_back(cur->time);
+        return out;
+    };
+    EXPECT_EQ(times(mid->changes({0, 100})), (std::vector<TimeStamp>{0, 10}));
+    EXPECT_EQ(times(hi->changes({0, 100})), (std::vector<TimeStamp>{0}));
+    EXPECT_EQ(times(lo->changes({0, 100})), (std::vector<TimeStamp>{0}));
+}
+
+// Пословное копирование не имеет права утащить в поток разряды сверх его
+// ширины: чужой вид зануления за своей шириной не обещает, а значение шире
+// объявленного потока просто обрезается. Мусор не виден в toString (он и так
+// маскирует), поэтому проверяется сравнение векторов — оно смотрит на СЛОВА.
+TEST(Memory, AppendMasksBitsAboveStreamWidth) {
+    auto b = makeMemoryBuilder();
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId bus = b->declareVar("bus", makeVector(7, 0));  // ровно 8 бит
+    b->endScope();
+    b->headerDone();
+
+    // Вид ширины 8 поверх слова, у которого старшие разряды заняты мусором.
+    const std::uint64_t dirty = 0xDEAD'BEEF'CAFE'0000ull | 0b0101'0101ull;
+    const LogicVectorView dirtyView{&dirty, nullptr, 8};
+
+    // Значение ШИРЕ потока: лишние разряды отбрасываются, как и раньше.
+    const LogicScratch wide{12, "111100110011"};
+
+    b->setTime(0);
+    b->valueChange(bus, dirtyView);
+    b->setTime(10);
+    b->valueChange(bus, wide.view());
+    b->finish();
+    const Database db = b->takeDatabase();
+
+    const auto sig = db.find("top.bus");
+    ASSERT_TRUE(sig);
+
+    const LogicScratch clean{8, "01010101"};
+    EXPECT_EQ(sig->valueAt(0).asLogic(), clean.vec);
+    EXPECT_EQ(sig->valueAt(0).asLogic().toString(), "01010101");
+
+    const LogicScratch low{8, "00110011"};
+    EXPECT_EQ(sig->valueAt(10).asLogic(), low.vec);
+    EXPECT_EQ(sig->valueAt(10).asLogic().toString(), "00110011");
+}
+
+// Узкое значение в широкий поток: незаписанные разряды слота дозаполняются
+// целыми словами, поэтому проверяется случай, где хвост из X перекрывает и
+// границу слова, и целое слово целиком.
+TEST(Memory, NarrowValueFillsWholeWordsWithX) {
+    constexpr std::uint32_t kWidth = 200;
+    constexpr std::uint32_t kGiven = 70;
+
+    auto b = makeMemoryBuilder();
+    b->beginScope("top", ScopeKind::MODULE);
+    const SignalId bus = b->declareVar("bus", makeVector(kWidth - 1, 0));
+    b->endScope();
+    b->headerDone();
+
+    // Значение задевает только слово 0 и один разряд слова 1: слово 2 и хвост
+    // слова 1 обязаны целиком стать X.
+    const std::string given(kGiven, '1');
+    b->setTime(0);
+    b->valueChange(bus, LogicScratch{kGiven, given}.view());
+    b->finish();
+    const Database db = b->takeDatabase();
+
+    const auto sig = db.find("top.bus");
+    ASSERT_TRUE(sig);
+    EXPECT_EQ(sig->valueAt(0).asLogic().toString(), std::string(kWidth - kGiven, 'x') + given);
 }
