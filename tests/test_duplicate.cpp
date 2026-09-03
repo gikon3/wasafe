@@ -188,7 +188,8 @@ TEST(Duplicate, LazyHasOwnCache) {
     const TempPath store{"wasafe_dup_cache.wsfstore"};
     writeStore(store.path);
 
-    const Database db = openStore(store.path);
+    // Не const: prefetch — подсказка, мутирующая кэш экземпляра.
+    Database db = openStore(store.path);
     const Database copy = db.duplicate();
 
     const auto streams = streamsOf(db);

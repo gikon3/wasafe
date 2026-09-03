@@ -54,7 +54,8 @@ public:
             throwMovedFrom();
         return *hierarchy_;
     }
-    [[nodiscard]] Storage& storage() const noexcept { return *storage_; }
+    [[nodiscard]] const Storage& storage() const noexcept { return *storage_; }
+    [[nodiscard]] Storage& storage() noexcept { return *storage_; }
     [[nodiscard]] TimeRange timeRange() const { return storage_->timeRange(); }
     [[nodiscard]] TimeScale timeScale() const { return storage_->timeScale(); }
 

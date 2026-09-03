@@ -267,7 +267,7 @@ void benchPrefetch(Bench::Report& report, const Options& opts, const std::filesy
     if (!wanted(opts, "prefetch"))
         return;
 
-    const Database db = openStore(corpus);
+    Database db = openStore(corpus);
     const Leaves leaves = leavesOf(db);
     const TimeRange range = db.timeRange();
     const std::size_t n = std::min<std::size_t>(64, leaves.nodes.size());
