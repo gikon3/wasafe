@@ -88,6 +88,9 @@ public:
             b_.assign(LogicVectorView::wordsFor(width_), 0);
     }
 
+    /// Вектор из среза [offset, offset+width) чужого вида. Биты за пределами src.width() дают X.
+    [[nodiscard]] static LogicVector fromSlice(LogicVectorView src, std::uint32_t offset, std::uint32_t width);
+
     [[nodiscard]] std::uint32_t width() const noexcept { return width_; }
     [[nodiscard]] std::uint32_t size() const noexcept { return width_; }  ///< синоним width() (dynamic_bitset)
     [[nodiscard]] bool empty() const noexcept { return width_ == 0; }

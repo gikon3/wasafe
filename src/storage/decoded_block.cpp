@@ -7,6 +7,7 @@
 #include <variant>
 
 #include "core/byte_io.hpp"
+#include "storage/bit_planes.hpp"
 
 namespace WaSafe {
 
@@ -44,33 +45,7 @@ void DecodedBlock::append(TimeStamp t, ValueView v) {
     std::visit(
             Overloaded{
                 [](std::monostate&) {},
-                [&](LogicStore& s) {
-                    const std::uint32_t words = LogicVectorView::wordsFor(s.width);
-                    const std::size_t base = s.aval.size();
-                    s.aval.resize(base + words, 0);
-
-                    const LogicVectorView src = v.logic();
-                    // bval заводится лишь когда он реально нужен; первое
-                    // четырёхзначное значение разворачивает план нулями под уже
-                    // записанные изменения — они были двухзначными, нули верны.
-                    //
-                    // Узкое значение тоже требует плана, хотя само двухзначно:
-                    // цикл ниже идёт по ширине ПОТОКА, а биты за src.width()
-                    // LogicVectorView отдаёт как X — b-бит у них единичный.
-                    // Без этой ветки запись ушла бы за границу пустого вектора.
-                    if (!s.bval.empty() || !src.isTwoState() || src.width() < s.width)
-                        s.bval.resize(base + words, 0);
-
-                    for (std::uint32_t bit = 0; bit < s.width; ++bit) {
-                        const Logic g = src[bit];
-                        const std::size_t word = bit / 64u;
-                        const std::uint64_t mask = std::uint64_t{1} << (bit % 64u);
-                        if (logicA(g))
-                            s.aval[base + word] |= mask;
-                        if (logicB(g))
-                            s.bval[base + word] |= mask;
-                    }
-                },
+                [&](LogicStore& s) { appendLogicValue(s.width, s.aval, s.bval, v.logic()); },
                 [&](RealStore& s) { s.values.push_back(v.real()); },
                 [&](StringStore& s) {
                     const std::string_view str = v.string();
