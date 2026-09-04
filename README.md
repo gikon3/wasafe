@@ -17,7 +17,8 @@ SystemVerilog**, **единый интерфейс записи из любог�
 
 > Статус: **работает end-to-end**. Конвейер «Reader → нормализованный store →
 > ленивый или in-memory доступ» покрыт модульными тестами (GoogleTest); прогон
-> в CI на каждый push, под ASan/UBSan и под TSan. Незакрытые места помечены
+> в CI на каждый push: Debug под ASan/UBSan и под TSan, Release с примерами и
+> стендом, сборка GCC и `clang-tidy`. Незакрытые места помечены
 > `TODO(impl)` — их четыре, все локальные
 > (см. [Что не доделано](#что-не-доделано)).
 
@@ -282,6 +283,16 @@ ctest --preset conan-release
 `WASAFE_BUILD_BENCHMARKS` (обе OFF).
 
 Зависимости (через Conan): `zstd` (сжатие блоков ленивого storage), `gtest` (тесты).
+
+CI собирает всё это в контейнере `ghcr.io/gikon3/cpp-arch`
+([рецепт](https://github.com/gikon3/ci-images)) — Arch Linux с clang и gcc из
+официальных репозиториев. Пять заданий: Debug под ASan/UBSan, Debug под TSan,
+Release с `WASAFE_BUILD_EXAMPLES` и `WASAFE_BUILD_BENCHMARKS` плюс прогон стенда,
+сборка GCC и `clang-tidy` по всему `compile_commands.json`.
+
+Нижняя граница версий из абзаца выше при этом **ничем не проверяется**: образ
+несёт свежайшие тулчейны и пересобирается еженедельно, так что CI подтверждает
+только их. Сборку на GCC 14 или Clang 18 не гоняет никто.
 
 ---
 

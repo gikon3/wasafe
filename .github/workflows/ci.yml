@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: clang Debug (${{ matrix.profile }})
+    name: ${{ matrix.case }}
     runs-on: ubuntu-24.04
 
     container:
@@ -22,7 +22,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [asan-ubsan, tsan]
+        include:
+          - case: asan-ubsan
+            profile: .github/conan/asan-ubsan
+            preset: conan-debug
+          - case: tsan
+            profile: .github/conan/tsan
+            preset: conan-debug
+          - case: release
+            profile: .github/conan/linux-clang
+            settings: -s build_type=Release
+            preset: conan-release
+            options: -DWASAFE_BUILD_EXAMPLES=ON -DWASAFE_BUILD_BENCHMARKS=ON
+          - case: gcc
+            profile: gcc
+            preset: conan-release
 
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +45,7 @@ jobs:
         id: toolchain
         run: |
           cat /etc/cpp-arch-release
-          echo "clang_major=$(clang++ -dumpversion | cut -d. -f1)" >> "$GITHUB_OUTPUT"
+          echo "version=clang$(clang++ -dumpversion | cut -d. -f1)-gcc$(g++ -dumpversion | cut -d. -f1)" >> "$GITHUB_OUTPUT"
           conan_home=$(conan config home)
           echo "conan_home=${conan_home:?путь кеша Conan пуст}" >> "$GITHUB_OUTPUT"
 
@@ -39,21 +53,66 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.toolchain.outputs.conan_home }}
-          key: conan-clang${{ steps.toolchain.outputs.clang_major }}-${{ matrix.profile }}-${{ hashFiles('conanfile.py', '.github/conan/*') }}
+          key: conan-${{ steps.toolchain.outputs.version }}-${{ matrix.case }}-${{ hashFiles('conanfile.py', '.github/conan/*') }}
           restore-keys: |
-            conan-clang${{ steps.toolchain.outputs.clang_major }}-${{ matrix.profile }}-
+            conan-${{ steps.toolchain.outputs.version }}-${{ matrix.case }}-
 
       - name: Установить зависимости
-        run: conan install . --build=missing -pr:a .github/conan/${{ matrix.profile }}
+        run: conan install . --build=missing -pr:a ${{ matrix.profile }} ${{ matrix.settings }}
 
       - name: Сконфигурировать
-        run: cmake --preset conan-debug
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.options }}
 
       - name: Собрать
-        run: cmake --build --preset conan-debug
+        run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Прогнать тесты
-        run: ctest --preset conan-debug --output-on-failure --parallel $(nproc) --schedule-random --timeout 30
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure --parallel $(nproc) --schedule-random --timeout 30
+
+      - name: Прогнать стенд
+        if: matrix.case == 'release'
+        run: ./build/Release/bin/wasafe-bench --scale=0.05
+
+      - name: Почистить кеш Conan перед сохранением
+        if: always()
+        run: conan cache clean "*" --source --build --temp
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ghcr.io/gikon3/cpp-arch:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Тулчейн образа
+        id: toolchain
+        run: |
+          cat /etc/cpp-arch-release
+          echo "version=clang$(clang++ -dumpversion | cut -d. -f1)-gcc$(g++ -dumpversion | cut -d. -f1)" >> "$GITHUB_OUTPUT"
+          conan_home=$(conan config home)
+          echo "conan_home=${conan_home:?путь кеша Conan пуст}" >> "$GITHUB_OUTPUT"
+
+      - name: Кеш пакетов Conan
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.toolchain.outputs.conan_home }}
+          key: conan-${{ steps.toolchain.outputs.version }}-tidy-${{ hashFiles('conanfile.py', '.github/conan/*') }}
+          restore-keys: |
+            conan-${{ steps.toolchain.outputs.version }}-tidy-
+
+      - name: Установить зависимости
+        run: conan install . --build=missing -pr:a .github/conan/linux-clang -s build_type=Release
+
+      - name: Сконфигурировать
+        run: cmake --preset conan-release -DWASAFE_BUILD_EXAMPLES=ON -DWASAFE_BUILD_BENCHMARKS=ON
+
+      - name: Прогнать clang-tidy
+        run: |
+          run-clang-tidy -j $(nproc) -use-color -p build/Release -quiet \
+              -warnings-as-errors '*' -allow-no-checks -source-filter '^(?!.*/build/)'
 
       - name: Почистить кеш Conan перед сохранением
         if: always()
