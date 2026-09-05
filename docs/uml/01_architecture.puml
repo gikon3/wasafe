@@ -10,10 +10,10 @@ package "Пользовательский код" as user #E8F4FD {
 }
 
 package "io/" as io #FFF9C4 {
-    [WaveformBuilder]  <<interface>>
-    [Reader]           <<interface>>
-    [Writer]           <<interface>>
-    [ingest()]         <<free function>>
+    [Builder]     <<interface>>
+    [Reader]      <<interface>>
+    [Writer]      <<interface>>
+    [ingest()]    <<free function>>
     note bottom of [ingest()]
       Связка reader → builder.
       Реестра форматов нет:
@@ -59,7 +59,7 @@ user --> formats    : создаёт нужный Reader
 user --> storage    : Database
 user --> model      : Signal / Scope
 
-io --> storage      : WaveformBuilder наполняет backend
+io --> storage      : Builder наполняет backend
 io --> model        : строит Hierarchy
 storage --> model   : читает Hierarchy
 model --> types     : Type, Value
@@ -72,7 +72,7 @@ io --> core
 
 [VcdReader] ..|> [Reader]          : реализует контракт
 [FstReader] ..|> [Reader]          : реализует контракт
-[ingest()] --> [WaveformBuilder]   : reader.read(sink)
+[ingest()] --> [Builder]           : reader.read(sink)
 [Database] --> [Storage]
 [Database] --> [Hierarchy]
 [MemoryStorage] ..|> [Storage]
