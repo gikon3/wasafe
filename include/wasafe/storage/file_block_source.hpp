@@ -24,8 +24,7 @@ public:
     [[nodiscard]] std::unique_ptr<BlockSource> duplicate() const override;
 
 private:
-    FileBlockSource(std::filesystem::path path, std::ifstream file) :
-            path_{std::move(path)}, file_{std::move(file)} {}
+    FileBlockSource(std::filesystem::path path, std::ifstream file) : path_{std::move(path)}, file_{std::move(file)} {}
 
 private:
     std::filesystem::path path_;  ///< нужен duplicate(): ifstream не копируется

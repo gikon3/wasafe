@@ -171,6 +171,21 @@ jobs:
         if: always()
         run: conan cache clean "*" --source --build --temp
 
+  clang-format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ghcr.io/gikon3/cpp-arch:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверить форматирование
+        run: |
+          find . -type f -regextype posix-egrep -regex '.*\.(c|cc|cpp|cxx|h|hpp|hxx)$' -print0 | \
+              xargs -0 -r -P $(nproc) -n 16 clang-format --dry-run --Werror
+
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04

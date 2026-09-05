@@ -193,7 +193,7 @@ TEST(ValidatingBuilder, RejectsUnknownSignalId) {
     openHeader(*b);
     b->setTime(0);
 
-    EXPECT_THROW(b->valueChange(SignalId{}, bits(1, "0")), Exception);       // невалидный
+    EXPECT_THROW(b->valueChange(SignalId{}, bits(1, "0")), Exception);      // невалидный
     EXPECT_THROW(b->valueChange(SignalId{9999}, bits(1, "0")), Exception);  // необъявленный
 }
 
