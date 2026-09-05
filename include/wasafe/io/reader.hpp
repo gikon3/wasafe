@@ -9,7 +9,7 @@
 namespace WaSafe {
 
 /// Абстрактный парсер формата. Реализация читает источник и наполняет хранилище
-/// через WaveformBuilder — единый приёмник для всех форматов.
+/// через Builder — единый приёмник для всех форматов.
 class WASAFE_API Reader {
 public:
     virtual ~Reader() = default;

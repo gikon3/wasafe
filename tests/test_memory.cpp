@@ -10,7 +10,7 @@
 
 #include "wasafe/core/exception.hpp"
 #include "wasafe/io/builder.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 using namespace WaSafe;
 

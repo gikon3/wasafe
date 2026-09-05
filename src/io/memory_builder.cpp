@@ -1,6 +1,6 @@
 #include "memory_builder.hpp"
 
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 namespace WaSafe {
 

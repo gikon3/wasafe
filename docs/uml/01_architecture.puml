@@ -10,10 +10,10 @@ package "Пользовательский код" as user #E8F4FD {
 }
 
 package "io/" as io #FFF9C4 {
-    [WaveformBuilder]  <<interface>>
-    [Reader]           <<interface>>
-    [Writer]           <<interface>>
-    [ingest()]         <<free function>>
+    [Builder]     <<interface>>
+    [Reader]      <<interface>>
+    [Writer]      <<interface>>
+    [ingest()]    <<free function>>
     note bottom of [ingest()]
       Связка reader → builder.
       Реестра форматов нет:
@@ -26,18 +26,18 @@ package "проекты-форматы (вне репозитория)" as forma
     [FstReader]        <<external>>
 }
 
-package "storage/" as storage #E8F5E9 {
+package "model/" as model #F3E5F5 {
     [Database]
+    [Hierarchy]
+    [Signal]
+    [Scope]
+}
+
+package "storage/" as storage #E8F5E9 {
     [Storage]   <<interface>>
     [MemoryStorage]
     [LazyStorage]
     [SignalIndex]
-}
-
-package "model/" as model #F3E5F5 {
-    [Hierarchy]
-    [Signal]
-    [Scope]
 }
 
 package "types/" as types #FBE9E7 {
@@ -56,12 +56,11 @@ package "core/" as core #ECEFF1 {
 ' зависимости сверху вниз
 user --> io         : ingest / query
 user --> formats    : создаёт нужный Reader
-user --> storage    : Database
-user --> model      : Signal / Scope
+user --> model      : Database / Signal / Scope
 
-io --> storage      : WaveformBuilder наполняет backend
-io --> model        : строит Hierarchy
-storage --> model   : читает Hierarchy
+io --> model        : строит Hierarchy, отдаёт Database
+io --> storage      : Builder наполняет backend
+model --> storage   : Database держит Storage
 model --> types     : Type, Value
 storage --> types   : ValueView, Value
 io --> types        : Type при declareVar
@@ -72,7 +71,7 @@ io --> core
 
 [VcdReader] ..|> [Reader]          : реализует контракт
 [FstReader] ..|> [Reader]          : реализует контракт
-[ingest()] --> [WaveformBuilder]   : reader.read(sink)
+[ingest()] --> [Builder]           : reader.read(sink)
 [Database] --> [Storage]
 [Database] --> [Hierarchy]
 [MemoryStorage] ..|> [Storage]

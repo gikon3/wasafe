@@ -1,4 +1,4 @@
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 #include <algorithm>
 #include <cstdint>

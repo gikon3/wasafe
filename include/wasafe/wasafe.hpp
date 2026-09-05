@@ -6,8 +6,8 @@
 /// Слои:
 ///   core/    — базовые типы: время, ошибки, идентификаторы.
 ///   types/   — система типов SystemVerilog и представление значений.
-///   model/   — иерархия дизайна и единый хэндл сигнала (Signal/Scope).
-///   storage/ — хранилище значений: storage, индекс, ленивая подгрузка, БД.
+///   model/   — иерархия дизайна, БД и единый хэндл сигнала (Signal/Scope).
+///   storage/ — хранилище значений: storage, индекс, ленивая подгрузка.
 ///   io/      — единый интерфейс ingestion (Builder), контракт Reader/Writer для
 ///              внешних проектов-форматов и связка ingest().
 
@@ -20,11 +20,11 @@
 #include "wasafe/io/reader.hpp"
 #include "wasafe/io/store.hpp"
 #include "wasafe/io/writer.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/model/hierarchy.hpp"
 #include "wasafe/model/scope.hpp"
 #include "wasafe/model/signal.hpp"
 #include "wasafe/storage/block_source.hpp"
-#include "wasafe/storage/database.hpp"
 #include "wasafe/storage/decoded_block.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 #include "wasafe/storage/memory_storage.hpp"

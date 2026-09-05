@@ -3,7 +3,7 @@
 #include <format>
 
 #include "wasafe/core/exception.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 namespace WaSafe {
 namespace {

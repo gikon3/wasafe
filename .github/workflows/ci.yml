@@ -186,6 +186,30 @@ jobs:
           find . -type f -regextype posix-egrep -regex '.*\.(c|cc|cpp|cxx|h|hpp|hxx)$' -print0 | \
               xargs -0 -r -P $(nproc) -n 16 clang-format --dry-run --Werror
 
+  layers:
+    name: layers
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Зависимости идут строго сверху вниз: io → model → storage → types → core.
+      # Эта провервка ловит нарушения слоёв
+      - name: Проверить направление зависимостей между слоями
+        run: |
+          status=0
+          check() {  # $1 — слой, $2 — что ему включать нельзя
+              if grep -rEn "#include \"(wasafe/)?($2)/" "include/wasafe/$1" "src/$1"; then
+                  echo "::error::слой $1 включает $2 — зависимости идут только сверху вниз"
+                  status=1
+              fi
+          }
+          check core    'types|model|storage|io'
+          check types   'model|storage|io'
+          check storage 'model|io'
+          check model   'io'
+          exit $status
+
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04
