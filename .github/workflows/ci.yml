@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Понедельник, 02:00 UTC (05:00 МСК).
+  schedule:
+    - cron: '0 2 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -72,6 +75,97 @@ jobs:
       - name: Прогнать стенд
         if: matrix.case == 'release'
         run: ./build/Release/bin/wasafe-bench --scale=0.05
+
+      - name: Почистить кеш Conan перед сохранением
+        if: always()
+        run: conan cache clean "*" --source --build --temp
+
+  msvc:
+    name: msvc
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Тулчейн раннера
+        id: toolchain
+        run: |
+          cmake --version
+          python -m pip install --disable-pip-version-check --quiet "conan==2.32.0"
+          conan profile detect --force
+          "conan_home=$(conan config home)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "image=$env:ImageVersion"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Кеш пакетов Conan
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.toolchain.outputs.conan_home }}
+          key: conan-msvc-${{ steps.toolchain.outputs.image }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-msvc-${{ steps.toolchain.outputs.image }}-
+
+      - name: Установить зависимости
+        run: conan install . --build=missing -s compiler.cppstd=23 -s build_type=Release
+
+      - name: Показать пресеты
+        run: cmake --list-presets
+
+      - name: Сконфигурировать
+        run: cmake --preset conan-default
+
+      - name: Собрать
+        run: cmake --build --preset conan-release
+
+      - name: Прогнать тесты
+        run: ctest --preset conan-release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS --schedule-random --timeout 30
+
+  # Компиляция нативная: s390x-linux-gnu-g++ - обычная x86-программа
+  # выдающая s390x-код. Под qemu идёт только запуск тестов, через
+  # CMAKE_CROSSCOMPILING_EMULATOR из профиля образа.
+  big-endian:
+    name: big-endian (s390x)
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ghcr.io/gikon3/cpp-cross-s390x:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Тулчейн образа
+        id: toolchain
+        run: |
+          cat /etc/cpp-cross-s390x-release
+          echo "version=gcc$(s390x-linux-gnu-g++ -dumpversion | cut -d. -f1)" >> "$GITHUB_OUTPUT"
+          conan_home=$(conan config home)
+          echo "conan_home=${conan_home:?путь кеша Conan пуст}" >> "$GITHUB_OUTPUT"
+
+      - name: Кеш пакетов Conan
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.toolchain.outputs.conan_home }}
+          key: conan-s390x-${{ steps.toolchain.outputs.version }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-s390x-${{ steps.toolchain.outputs.version }}-
+
+      # Два профиля: default - нативный, для сборочного контекста, s390x - хостовый.
+      - name: Установить зависимости
+        run: conan install . --build=missing -pr:b default -pr:h s390x
+
+      - name: Сконфигурировать
+        run: cmake --preset conan-release
+
+      - name: Собрать
+        run: cmake --build --preset conan-release
+
+      # Архитектура проверяется явно - _ident[EI_DATA] = 2 (MSB), e_machine = 0x0016 (EM_S390).
+      - name: Убедиться, что бинарь big-endian
+        run: |
+          test "$(od -An -tu1 -j5  -N1 build/Release/bin/wasafe-tests | tr -d ' ')" = 2
+          test "$(od -An -tx1 -j18 -N2 build/Release/bin/wasafe-tests | tr -d ' ')" = 0016
+
+      - name: Прогнать тесты
+        run: ctest --preset conan-release --output-on-failure --parallel $(nproc) --schedule-random --timeout 300
 
       - name: Почистить кеш Conan перед сохранением
         if: always()
