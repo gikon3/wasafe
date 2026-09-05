@@ -1,8 +1,7 @@
 #include "decompress.hpp"
 
-#include <stdexcept>
-
 #include "wasafe/config.hpp"
+#include "wasafe/core/exception.hpp"
 
 #if WASAFE_HAS_ZSTD
 #include <zstd.h>
@@ -20,20 +19,20 @@ std::vector<std::byte> decompress(std::vector<std::byte> stored, BlockRef::Codec
             std::vector<std::byte> out(rawSize);
             const std::size_t n = ZSTD_decompress(out.data(), out.size(), stored.data(), stored.size());
             if (ZSTD_isError(n) || n != rawSize) {
-                throw std::runtime_error("block_source: zstd decompress failed");
+                throw Exception("block_source: zstd decompress failed");
             }
             return out;
 #else
-            throw std::runtime_error("block_source: zstd codec not built");
+            throw Exception("block_source: zstd codec not built");
 #endif
         }
 
         case BlockRef::Codec::LZ4:
         case BlockRef::Codec::ZLIB:
             // TODO(impl): подключить lz4/zlib (используются плагином FST).
-            throw std::runtime_error("block_source: codec not supported in core");
+            throw Exception("block_source: codec not supported in core");
     }
-    throw std::runtime_error("block_source: unknown codec");
+    throw Exception("block_source: unknown codec");
 }
 
 }  // namespace WaSafe

@@ -1,11 +1,10 @@
-# Debug + ThreadSanitizer.
-# Флаги применяются ко всему графу: TSan требует инструментированных зависимостей,
-# иначе даёт ложные срабатывания на чужом коде.
-
-include(linux-clang22)
+include(linux-clang)
 
 [conf]
 tools.build:cxxflags+=["-fsanitize=thread", "-fno-omit-frame-pointer", "-g"]
 tools.build:cflags+=["-fsanitize=thread", "-fno-omit-frame-pointer", "-g"]
 tools.build:exelinkflags+=["-fsanitize=thread"]
 tools.build:sharedlinkflags+=["-fsanitize=thread"]
+
+[buildenv]
+TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1

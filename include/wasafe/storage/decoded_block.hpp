@@ -94,7 +94,8 @@ private:
 };
 
 /// Сериализовать полезную нагрузку блока в плоский буфер (без сжатия).
-/// Формат версии 1, порядок байт — хостовый (TODO: переносимый little-endian).
+/// Формат версии 3 ('WDB3'), порядок байт — явный little-endian независимо от
+/// машины.
 [[nodiscard]] WASAFE_API std::vector<std::byte> encodeBlock(const DecodedBlock& block);
 
 /// Разобрать буфер, полученный от BlockSource (уже распакованный кодеком).
