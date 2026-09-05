@@ -1,6 +1,7 @@
 #include "wasafe/storage/file_block_source.hpp"
 
 #include "storage/decompress.hpp"
+#include "wasafe/core/exception.hpp"
 
 namespace WaSafe {
 
@@ -25,7 +26,7 @@ std::vector<std::byte> FileBlockSource::readBlock(const BlockRef& block) const {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — istream::read требует char*
     file_.read(reinterpret_cast<char*>(stored.data()), static_cast<std::streamsize>(block.storedSize));
     if (file_.gcount() != static_cast<std::streamsize>(block.storedSize))
-        throw std::runtime_error("FileBlockSource: short read");
+        throw Exception{"FileBlockSource: short read"};
     return decompress(std::move(stored), block.codec, block.rawSize);
 }
 
