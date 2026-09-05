@@ -18,7 +18,7 @@
 #include "wasafe/config.hpp"
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/store.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 #include "wasafe/storage/signal_index.hpp"
 

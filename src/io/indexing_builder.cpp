@@ -9,7 +9,7 @@
 #include "io/hierarchy_codec.hpp"
 #include "io/store_layout.hpp"
 #include "wasafe/config.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/file_block_source.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 

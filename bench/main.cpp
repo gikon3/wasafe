@@ -25,7 +25,7 @@
 #include "core/crc32.hpp"
 #include "report.hpp"
 #include "wasafe/io/store.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 #include "waveform.hpp"
 

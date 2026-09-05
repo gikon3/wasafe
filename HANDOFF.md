@@ -51,10 +51,10 @@ Backend-библиотека на **C++23** для хранения и дост�
 
 ```plaintext
 io/       Reader (контракт) ─ingest()─► Builder    единый ingestion
-storage/  Database ─► Storage                       значения (Memory | Lazy + Index)
-model/    Hierarchy / Scope / Signal               структура дизайна + единый хэндл
+model/    Database ─► Hierarchy / Scope / Signal   структура дизайна + единый хэндл
+storage/  Storage                                  значения (Memory | Lazy + Index)
 types/    TypeDescriptor / Value / Logic           типы SV, 4-значная логика
-core/     time / exception / ids / string_map           база
+core/     time / exception / ids / string_map      база
 ```
 
 Ядро (`src/`) ничего не знает о конкретных форматах — и теперь буквально: реализаций
@@ -71,8 +71,8 @@ include/wasafe/
   types/     logic.hpp  logic_vector.hpp  logic_vector_view.hpp  type.hpp
              value.hpp  value_view.hpp  aggregate.hpp
              column_view.hpp  time_column.hpp
-  model/     hierarchy.hpp  scope.hpp  signal.hpp
-  storage/   storage.hpp  database.hpp  signal_index.hpp
+  model/     database.hpp  hierarchy.hpp  scope.hpp  signal.hpp
+  storage/   storage.hpp  signal_index.hpp
              memory_storage.hpp  lazy_storage.hpp  value_cursor.hpp
              decoded_block.hpp  block_source.hpp  raw_block_source.hpp
              file_block_source.hpp  memory_block_source.hpp
@@ -450,7 +450,7 @@ ingestion оставляет частичный файл.
 
     1. **Источник перечитывать на КАЖДОЕ заталкивание в кучу, а не кэшировать
        один раз.** У мультипотокового подкурсора (`kKeepSource` — это
-       `RemapCursor` из `storage/database.cpp`) `source` меняется от изменения к
+       `RemapCursor` из `model/database.cpp`) `source` меняется от изменения к
        изменению, потому что один такой подкурсор покрывает сразу несколько
        номеров. Закэшированный при построении номер разъедется на первом же
        композите. Ловят `MultiCursor.DatabaseMixedNodes` и

@@ -1,5 +1,5 @@
 @startuml 04_storage
-title Хранилище значений — Storage, Database, SignalIndex
+title Хранилище значений — Storage, курсоры, SignalIndex
 
 skinparam classAttributeIconSize 0
 skinparam defaultFontName Consolas
@@ -199,46 +199,6 @@ LazyStorage *-- SignalIndex
 LazyStorage *-- BlockSource
 LazyStorage *-- "LazyStorage::BlockCache"
 LazyStorage --> DecodedBlock : decodeBlock()
-
-' ──────────────── База данных ────────────────
-class Database {
-    - hierarchy_ : Hierarchy
-    - storage_   : unique_ptr<Storage>
-    --
-    + timeRange() / timeScale()
-    + hierarchy() : const Hierarchy&
-    + storage() const : const Storage&
-    + storage()   : Storage&
-    --
-    «навигация:»
-    + root()           : Scope
-    + find(path)       : optional<Signal>
-    + findScope(path)  : optional<Scope>
-    --
-    «доступ к значениям (делегирует в storage):»
-    + valueAt(node, t)     : Value
-    + changes(node, range) : ValueCursor
-    + nextChange(node, t)  : TimeStamp
-    + prevChange(node, t)  : TimeStamp
-    --
-    «фабрики хэндлов:»
-    + signalHandle(node) : Signal
-    + scopeHandle(id)    : Scope
-}
-
-note as NOPEN
-  Открытия по пути у БД нет:
-  БД строится из Reader'а
-  пользователя через ingest()
-  (см. 05_io / 06_sequence_open).
-  Готовый store самодостаточен:
-  иерархия лежит в нём секцией,
-  и он переоткрывается openStore()
-  без исходного дампа и парсера.
-end note
-
-Database *-- Storage
-Database --> ValueCursor : changes()
 
 Storage <|.. MemoryStorage
 Storage <|.. LazyStorage

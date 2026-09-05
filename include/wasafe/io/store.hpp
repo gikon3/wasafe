@@ -3,7 +3,7 @@
 #include <filesystem>
 
 #include "wasafe/export.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 
 namespace WaSafe {

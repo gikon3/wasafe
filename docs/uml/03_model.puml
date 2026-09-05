@@ -1,5 +1,5 @@
 @startuml 03_model
-title Модель иерархии — Hierarchy, Scope, Signal
+title Модель — Database, Hierarchy, Scope, Signal
 
 skinparam classAttributeIconSize 0
 skinparam defaultFontName Consolas
@@ -61,6 +61,49 @@ class Hierarchy {
 
 Hierarchy *-- "scopes_[]" ScopeNode
 Hierarchy *-- "nodes_[]" SignalNode
+
+' ──────────────── База данных — фасад над иерархией и значениями ────────────────
+class Database {
+    - hierarchy_ : Hierarchy
+    - storage_   : unique_ptr<Storage>
+    --
+    + timeRange() / timeScale()
+    + hierarchy() : const Hierarchy&
+    + storage() const : const Storage&
+    + storage()   : Storage&
+    --
+    «навигация:»
+    + root()           : Scope
+    + find(path)       : optional<Signal>
+    + findScope(path)  : optional<Scope>
+    --
+    «доступ к значениям (делегирует в storage):»
+    + valueAt(node, t)     : Value
+    + changes(node, range) : ValueCursor
+    + nextChange(node, t)  : TimeStamp
+    + prevChange(node, t)  : TimeStamp
+    --
+    «фабрики хэндлов:»
+    + signalHandle(node) : Signal
+    + scopeHandle(id)    : Scope
+}
+
+interface Storage <<см. 04_storage>> {
+}
+
+note as NOPEN
+  Открытия по пути у БД нет:
+  БД строится из Reader'а
+  пользователя через ingest()
+  (см. 05_io / 06_sequence_open).
+  Готовый store самодостаточен:
+  иерархия лежит в нём секцией,
+  и он переоткрывается openStore()
+  без исходного дампа и парсера.
+end note
+
+Database *-- Hierarchy
+Database *-- Storage
 
 ' ──────────────── Публичные хэндлы (лёгкие, копируемые) ────────────────
 note as N1

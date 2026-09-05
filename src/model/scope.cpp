@@ -1,7 +1,7 @@
 #include "wasafe/model/scope.hpp"
 
 #include "wasafe/core/exception.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 namespace WaSafe {
 

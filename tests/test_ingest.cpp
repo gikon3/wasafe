@@ -7,7 +7,7 @@
 #include "fake_reader.hpp"
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/ingest.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 
 using namespace WaSafe;
 

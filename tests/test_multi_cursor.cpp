@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "wasafe/io/builder.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/decoded_block.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 #include "wasafe/storage/memory_block_source.hpp"

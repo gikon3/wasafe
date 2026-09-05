@@ -6,8 +6,8 @@
 
 #include "wasafe/core/exception.hpp"
 #include "wasafe/io/builder.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/model/hierarchy.hpp"
-#include "wasafe/storage/database.hpp"
 
 using namespace WaSafe;
 

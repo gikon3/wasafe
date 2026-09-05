@@ -8,7 +8,7 @@
 #include "core/byte_io.hpp"
 #include "io/hierarchy_codec.hpp"
 #include "wasafe/io/builder.hpp"
-#include "wasafe/storage/database.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/types/type.hpp"
 
 using namespace WaSafe;

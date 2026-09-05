@@ -31,7 +31,7 @@ SystemVerilog**, **единый интерфейс записи из любог�
 | Единый интерфейс к сигналам вне зависимости от типа и вложенности шины | [`Signal`](include/wasafe/model/signal.hpp) — один лёгкий хэндл для скаляра, шины, структуры, объединения и элемента массива. Те же методы `valueAt`/`changes`/`children`/`operator[]` на любом уровне. |
 | Многомерные массивы и структуры из SV | Система типов [`type.hpp`](include/wasafe/types/type.hpp): `StructType`, `ArrayType` (многомерность — через вложение массивов), `EnumType`, `VectorType`. Packed-члены описываются битовыми срезами родительского потока (`BitSlice` в [hierarchy.hpp](include/wasafe/model/hierarchy.hpp)). |
 | Общий интерфейс записи из любого формата | [`Builder`](include/wasafe/io/builder.hpp) — единый приёмник ingestion. Любой [`Reader`](include/wasafe/io/reader.hpp) (VCD/FST/…, реализуется вне этого проекта) пишет только через него и ничего не знает о хранилище; связка — [`ingest(reader, sink)`](include/wasafe/io/ingest.hpp). |
-| Доступ по диапазонам времени или имени сигнала в файл, динамическая подгрузка без полной загрузки в память | [`Storage`](include/wasafe/storage/storage.hpp) + [`LazyStorage`](include/wasafe/storage/lazy_storage.hpp) + [`SignalIndex`](include/wasafe/storage/signal_index.hpp): в памяти только метаданные и индекс блоков; значения тянутся блоками по запросу `changes(range)` / `valueAt`. Поиск по имени — [`Database::find`](include/wasafe/storage/database.hpp). Готовый `*.wsfstore` самодостаточен и переоткрывается [`openStore(path)`](include/wasafe/io/store.hpp) без исходного дампа и без парсера. |
+| Доступ по диапазонам времени или имени сигнала в файл, динамическая подгрузка без полной загрузки в память | [`Storage`](include/wasafe/storage/storage.hpp) + [`LazyStorage`](include/wasafe/storage/lazy_storage.hpp) + [`SignalIndex`](include/wasafe/storage/signal_index.hpp): в памяти только метаданные и индекс блоков; значения тянутся блоками по запросу `changes(range)` / `valueAt`. Поиск по имени — [`Database::find`](include/wasafe/model/database.hpp). Готовый `*.wsfstore` самодостаточен и переоткрывается [`openStore(path)`](include/wasafe/io/store.hpp) без исходного дампа и без парсера. |
 | C++23, CMake + Conan | `std::span`, `std::print`, ranges, `std::variant`. Стандарт требует сама цель — `target_compile_features(wasafe PUBLIC cxx_std_23)`; рецепт дополнительно проверяет профиль через `check_min_cppstd(23)`, поэтому `-s compiler.cppstd=23` обязателен (по умолчанию в профиле 20). Сборка через [`conanfile.py`](conanfile.py) + [`CMakeLists.txt`](CMakeLists.txt); при `WASAFE_INSTALL` генерируется и `wasafe-config.cmake`, так что `find_package(wasafe CONFIG)` работает и без Conan. |
 
 Модель ошибок — **исключения**: всё, что может провалиться, бросает
@@ -54,14 +54,12 @@ SystemVerilog**, **единый интерфейс записи из любог�
    io/          │ Builder (MemoryBuilder | IndexingBuilder)    │  единый ingestion
                 └───────────────────────┬──────────────────────┘
                                         ▼
-   storage/     ┌────────────────────────┐   ┌──────────────────┐
+   model/       ┌────────────────────────┐   ┌──────────────────┐  storage/
                 │   Database             │──►│  Storage         │  значения
                 │ (иерархия + значения)  │   │  ├ MemoryStorage │
-                └────────────┬───────────┘   │  └ LazyStorage   │◄─ SignalIndex (блоки)
-                             │               └──────────────────┘
-   model/       ┌────────────┴───────────┐
-                │ Hierarchy / Scope /    │  структура дизайна
-                │ Signal (единый хэндл)  │
+                │                        │   │  └ LazyStorage   │◄─ SignalIndex (блоки)
+                │ Hierarchy / Scope /    │   └──────────────────┘
+                │ Signal (единый хэндл)  │  структура дизайна
                 └────────────┬───────────┘
    types/       ┌────────────┴──────────────────────────┐
                 │ TypeDescriptor, Value, Logic          │  типы SV (4-зн. логика)
@@ -245,8 +243,8 @@ include/wasafe/     публичные заголовки (API)
   core/             время, исключения, строгие id, string_map
   types/            логика 4-знач., система типов SV, представление значений,
                     поколоночные срезы (ColumnView, TimeColumn)
-  model/            иерархия, Scope, единый Signal
-  storage/          storage, индекс блоков, ленивый/in-memory, БД
+  model/            иерархия, Scope, единый Signal, Database
+  storage/          storage, индекс блоков, ленивый/in-memory
   io/               Builder, контракт Reader/Writer, ingest(), openStore()
 src/                реализация ядра
 examples/           dump_hierarchy, query_range, build_inmemory,
@@ -256,6 +254,8 @@ bench/              wasafe-bench — стенд замеров
 docs/               writing_a_reader.md, UML-диаграммы в docs/uml/
 ```
 
+`Database` объявлена в `wasafe/model/database.hpp`: это фасад над иерархией, а не
+хранилище значений, и `Signal`/`Scope` — фасады уже над ней.
 Парсеров форматов в дереве нет: они выносятся в отдельные проекты, зависящие от
 этой библиотеки ([docs/writing_a_reader.md](docs/writing_a_reader.md)).
 

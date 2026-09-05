@@ -15,8 +15,8 @@
 #include "wasafe/core/exception.hpp"
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/store.hpp"
+#include "wasafe/model/database.hpp"
 #include "wasafe/storage/block_source.hpp"
-#include "wasafe/storage/database.hpp"
 #include "wasafe/storage/decoded_block.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 
