@@ -57,20 +57,42 @@ class Hierarchy {
     - descend(node, segments) : optional<NodeId>
     + pathOf(NodeId) : string
     + pathOf(ScopeId)   : string
+    --
+    + scopeCount() / signalCount() : size_t
+    + memoryUse() : MemoryUse   «цена метаданных, ~231 Б на узел»
 }
+
+class "Hierarchy::MemoryUse" as MemoryUse <<data>> {
+    + nodes / scopes : size_t   «векторы узлов: capacity x sizeof»
+    + names    : size_t   «heap имён — ОБЕ копии: в узле и ключом карты»
+    + indexes  : size_t   «StringMap: bucket-массивы и узлы»
+    + children : size_t
+    + total() : size_t
+    note right
+      Ленивый режим ограничивает
+      память ЗНАЧЕНИЙ; иерархия
+      грузится целиком, потолка
+      у неё нет. Счёт видит только
+      capacity, то есть это НИЖНЯЯ
+      граница: RSS будет больше.
+    end note
+}
+
+Hierarchy ..> MemoryUse
 
 Hierarchy *-- "scopes_[]" ScopeNode
 Hierarchy *-- "nodes_[]" SignalNode
 
 ' ──────────────── База данных — фасад над иерархией и значениями ────────────────
 class Database {
-    - hierarchy_ : Hierarchy
+    - hierarchy_ : shared_ptr<const Hierarchy>   «разделяется дубликатами»
     - storage_   : unique_ptr<Storage>
     --
     + timeRange() / timeScale()
     + hierarchy() : const Hierarchy&
     + storage() const : const Storage&
     + storage()   : Storage&
+    + metadataBytes() : size_t   «иерархия + геометрия блоков»
     --
     «навигация:»
     + root()           : Scope
