@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <format>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -386,4 +389,58 @@ TEST(Hierarchy, InvalidScopeHandleThrows) {
 
     EXPECT_NO_THROW((void)top->name());
     EXPECT_NO_THROW((void)top->signals());
+}
+
+// ---------------------------------------------------------------------------
+// Стоимость метаданных: ленивый режим ограничивает память ЗНАЧЕНИЙ, а иерархия
+// живёт в ОЗУ целиком. memoryUse() — то, чем этот потолок измеряется.
+// ---------------------------------------------------------------------------
+
+TEST(Hierarchy, MemoryUseGrowsWithNodes) {
+    Hierarchy small;
+    const ScopeId scope = small.addScope(small.root(), "top", ScopeKind::MODULE);
+    small.addSignal(scope, "a", makeScalar(), SignalId{0});
+
+    Hierarchy big;
+    const ScopeId bigScope = big.addScope(big.root(), "top", ScopeKind::MODULE);
+    for (std::int32_t i = 0; i < 64; ++i)
+        big.addSignal(bigScope, std::format("s{}", i), makeScalar(), SignalId{static_cast<SignalId::ValueType>(i)});
+
+    EXPECT_GT(big.memoryUse().total(), small.memoryUse().total());
+    // Сумма статей — это и есть total: забытая статья тихо занизила бы ответ.
+    const Hierarchy::MemoryUse use = big.memoryUse();
+    EXPECT_EQ(use.total(), use.nodes + use.scopes + use.names + use.indexes + use.children);
+}
+
+TEST(Hierarchy, MemoryUseCountsMaps) {
+    Hierarchy h;
+    const ScopeId top = h.addScope(h.root(), "top", ScopeKind::MODULE);
+    const NodeId mem = h.addSignal(top, "mem", makeScalar(), SignalId{});
+    for (std::int32_t i = 0; i < 32; ++i)
+        h.addElement(mem, i, makeScalar(), SignalId{static_cast<SignalId::ValueType>(i)});
+
+    const Hierarchy::MemoryUse use = h.memoryUse();
+    // Карты имён — не бесплатная деталь реализации, а заметная доля счёта:
+    // каждый узел несёт StringMap, а у родителя в ней запись на каждого ребёнка.
+    EXPECT_GT(use.indexes, 0U);
+    EXPECT_GT(use.children, 0U);
+    EXPECT_GT(use.nodes, 32U * sizeof(Hierarchy::SignalNode));
+}
+
+TEST(Hierarchy, MemoryUseCountsNameTwice) {
+    // Имя длиннее SSO-порога лежит в куче ДВАЖДЫ: копией в самом узле и копией
+    // ключом в карте родителя (addSignal кладёт его emplace'ом уже после
+    // перемещения). Счёт обязан видеть обе.
+    const std::string longName(200, 'x');
+
+    Hierarchy shortNames;
+    const ScopeId a = shortNames.addScope(shortNames.root(), "top", ScopeKind::MODULE);
+    shortNames.addSignal(a, "s", makeScalar(), SignalId{0});
+
+    Hierarchy longNames;
+    const ScopeId b = longNames.addScope(longNames.root(), "top", ScopeKind::MODULE);
+    longNames.addSignal(b, longName, makeScalar(), SignalId{0});
+
+    const std::size_t delta = longNames.memoryUse().names - shortNames.memoryUse().names;
+    EXPECT_GE(delta, 2 * longName.size()) << "длинное имя учтено меньше двух раз";
 }

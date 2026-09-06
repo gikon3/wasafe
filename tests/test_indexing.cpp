@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +20,7 @@
 #include "wasafe/io/builder.hpp"
 #include "wasafe/io/store.hpp"
 #include "wasafe/model/database.hpp"
+#include "wasafe/model/hierarchy.hpp"
 #include "wasafe/storage/lazy_storage.hpp"
 #include "wasafe/storage/signal_index.hpp"
 
@@ -748,4 +750,73 @@ TEST(Indexing, ForeignSectionIsRejected) {
     TempPath const swapped{"wasafe_section_magic.wsfstore"};
     writeStoreWith(swapped.path, img, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, img.hierarchy);
     EXPECT_THAT(messageOf([&] { (void)openStore(swapped.path); }), testing::HasSubstr("bad hierarchy section magic"));
+}
+
+// ---------------------------------------------------------------------------
+// Стоимость метаданных. Ленивый режим ограничивает кэш ЗНАЧЕНИЙ; иерархия и
+// геометрия блоков грузятся целиком, и их цену надо уметь назвать.
+// ---------------------------------------------------------------------------
+
+TEST(Indexing, IndexByteSizeGrowsWithBlocks) {
+    const auto write = [](const std::filesystem::path& path, std::uint32_t changes) {
+        auto b = makeIndexingBuilder(path, {.blockChanges = 2});
+        b->beginScope("top", ScopeKind::MODULE);
+        const SignalId d = b->declareVar("data", makeVector(3, 0));
+        b->endScope();
+        b->headerDone();
+
+        const LogicScratch v{4, "0101"};
+        for (std::uint32_t i = 0; i < changes; ++i) {
+            b->setTime(static_cast<TimeStamp>(i) * 10);
+            b->valueChange(d, v.view());
+        }
+        b->finish();
+        std::ignore = b->takeDatabase();
+    };
+
+    TempPath const few{"wasafe_idx_bytes_few.wsfstore"};
+    TempPath const many{"wasafe_idx_bytes_many.wsfstore"};
+    write(few.path, 2);
+    write(many.path, 64);
+
+    const Database dbFew = openStore(few.path);
+    const Database dbMany = openStore(many.path);
+
+    // Тот же один поток, но блоков больше — значит и геометрия дороже.
+    EXPECT_EQ(indexOfReopened(dbFew).streamCount(), indexOfReopened(dbMany).streamCount());
+    EXPECT_GT(indexOfReopened(dbMany).byteSize(), indexOfReopened(dbFew).byteSize());
+
+    // Индекс — часть метаданных БД, а не её кэша: metadataBytes() его видит,
+    // cachedBytes() на холодной БД равен нулю.
+    EXPECT_GT(dbMany.metadataBytes(), dbFew.metadataBytes());
+    EXPECT_EQ(dbMany.storage().cachedBytes(), 0U);
+    EXPECT_GT(dbMany.storage().metadataBytes(), 0U);
+}
+
+TEST(Indexing, MetadataCostsMoreInMemoryThanOnDisk) {
+    // Секция иерархии не несёт ни карт имён, ни списков детей — их отстраивает
+    // decodeHierarchy теми же addSignal/addMember. Поэтому в ОЗУ иерархия стоит
+    // кратно дороже, чем занимает на диске, и открытие большого дизайна упирается
+    // именно в это. Тест сторожит сам факт разрыва, а не его величину.
+    TempPath const tmp{"wasafe_meta_cost.wsfstore"};
+    {
+        auto b = makeIndexingBuilder(tmp.path);
+        b->beginScope("top", ScopeKind::MODULE);
+        const Type arr = makeArray(makeVector(7, 0), 0, 255);
+        std::vector<SignalId> leaves(expansionStreamCount(arr));
+        std::ignore = b->declareVar("mem", arr, std::nullopt, leaves);
+        b->endScope();
+        b->headerDone();
+        b->finish();
+        std::ignore = b->takeDatabase();
+    }
+
+    const StoreImage img = readStoreImage(tmp.path);
+    const Database db = openStore(tmp.path);
+
+    // 257 узлов: сам массив и 256 его элементов, каждый — отдельный SignalNode.
+    ASSERT_EQ(db.hierarchy().signalCount(), 257U);
+    const Hierarchy::MemoryUse use = db.hierarchy().memoryUse();
+    EXPECT_GT(use.total(), 2 * img.hierarchy.size()) << "материализация обязана стоить дороже секции";
+    EXPECT_GT(use.indexes, 0U) << "карты имён отстраиваются при декодировании";
 }

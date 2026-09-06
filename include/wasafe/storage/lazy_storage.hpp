@@ -50,6 +50,7 @@ public:
     void prefetch(std::span<const SignalId> ids, TimeRange range) override;
     void release(TimeRange keep) override;
     [[nodiscard]] std::size_t cachedBytes() const override;
+    [[nodiscard]] std::size_t metadataBytes() const override;
     /// Индекс разделяется, источник берётся через BlockSource::duplicate(), кэш
     /// у дубликата свой и пустой. nullptr, если источник не размножается.
     [[nodiscard]] std::unique_ptr<Storage> duplicate() const override;

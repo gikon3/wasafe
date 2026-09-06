@@ -1,6 +1,7 @@
 #include "wasafe/model/hierarchy.hpp"
 
 #include <cctype>
+#include <cstddef>
 #include <format>
 #include <ranges>
 #include <string>
@@ -68,6 +69,31 @@ Segment parseSegment(std::string_view seg) {
     return s;
 }
 
+/// Heap, занятый строкой. Короткие строки лежат внутри самого объекта (SSO) и
+/// кучу не трогают вовсе; порог SSO не стандартизован, поэтому берётся у пустой
+/// строки, а не литералом.
+std::size_t stringHeap(const std::string& s) {
+    static const std::size_t kSso = std::string{}.capacity();
+    return s.capacity() > kSso ? s.capacity() + 1 : 0;  // +1 -- завершающий ноль
+}
+
+/// Накладные расходы StringMap БЕЗ heap ключей: они считаются отдельной статьёй
+/// (names), иначе длинное имя учлось бы дважды.
+///
+/// Формула точна для libstdc++: узел -- это указатель на следующий плюс пара
+/// (ключ, значение), кэша хеша нет, потому что TransparentStringHash::operator()
+/// помечен noexcept. На MSVC список двусвязный, и счёт занижен на указатель с узла.
+template <class V>
+std::size_t mapOverhead(const StringMap<V>& m) {
+    using Node = StringMap<V>::value_type;
+    return m.bucket_count() * sizeof(void*) + m.size() * (sizeof(void*) + sizeof(Node));
+}
+
+template <class T>
+std::size_t vectorHeap(const std::vector<T>& v) {
+    return v.capacity() * sizeof(T);
+}
+
 }  // namespace
 
 Hierarchy::Hierarchy() {
@@ -131,6 +157,40 @@ NodeId Hierarchy::addMember(NodeId parent, std::string name, Type type, SignalId
 NodeId Hierarchy::addElement(NodeId parent, std::int32_t index, Type type, SignalId stream,
         std::optional<BitSlice> projection) {
     return addMember(parent, std::format("[{}]", index), std::move(type), stream, projection);
+}
+
+std::size_t Hierarchy::MemoryUse::total() const noexcept {
+    return nodes + scopes + names + indexes + children;
+}
+
+Hierarchy::MemoryUse Hierarchy::memoryUse() const {
+    MemoryUse use;
+    // capacity, а не size: векторы узлов растут с запасом, и незаполненный хвост
+    // занят так же честно, как заполненный.
+    use.nodes = nodes_.capacity() * sizeof(SignalNode);
+    use.scopes = scopes_.capacity() * sizeof(ScopeNode);
+
+    for (const auto& s : scopes_) {
+        use.names += stringHeap(s.name);
+        use.indexes += mapOverhead(s.scopeIndex) + mapOverhead(s.signalIndex);
+        use.children += vectorHeap(s.childScopes) + vectorHeap(s.signals);
+        // Ключ карты -- НЕЗАВИСИМАЯ копия имени узла (addScope/addSignal кладут
+        // его через emplace уже после перемещения в узел), поэтому длинное имя
+        // платится дважды, и вторая копия обязана попасть в счёт.
+        for (const auto& kv : s.scopeIndex)
+            use.names += stringHeap(kv.first);
+        for (const auto& kv : s.signalIndex)
+            use.names += stringHeap(kv.first);
+    }
+
+    for (const auto& n : nodes_) {
+        use.names += stringHeap(n.name);
+        use.indexes += mapOverhead(n.memberIndex);
+        use.children += vectorHeap(n.children);
+        for (const auto& kv : n.memberIndex)
+            use.names += stringHeap(kv.first);
+    }
+    return use;
 }
 
 std::optional<NodeId> Hierarchy::descend(NodeId node, std::span<const std::string_view> segments) const {

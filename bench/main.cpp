@@ -9,11 +9,13 @@
 //   wasafe-bench --scale=0.25    короче прогон (масштабируется длительность)
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <print>
 #include <span>
 #include <string>
@@ -23,6 +25,7 @@
 #include <vector>
 
 #include "core/crc32.hpp"
+#include "io/store_layout.hpp"
 #include "report.hpp"
 #include "wasafe/io/store.hpp"
 #include "wasafe/model/database.hpp"
@@ -470,6 +473,117 @@ void benchVerifyBlocks(Bench::Report& report, const Options& opts, const std::fi
             .text("checksum", plainSeen == verifySeen ? "ok" : "РАЗОШЁЛСЯ");
 }
 
+// ---------------------------------------------------------------------------
+// Потолок метаданных: ленивый режим ограничивает память
+// ЗНАЧЕНИЙ (LazyStorageOptions::cacheBytes), а иерархия и геометрия блоков
+// грузятся целиком и потолка не имеют. Дизайн с широкой развёрткой массивов —
+// тот случай, где это упирается первым: каждый элемент unpacked-массива стоит
+// отдельного узла со своим потоком.
+//
+// Память меряется дважды. meta_MiB/idx_MiB — аналитический счёт библиотеки: он
+// разложим по статьям, но видит только capacity контейнеров, то есть НИЖНЯЯ
+// граница. rss_MiB — что за это заплатила ОС; разница и есть цена аллокатора.
+// ---------------------------------------------------------------------------
+
+/// Размер секции метаданных внутри store. Последние kFooterSize байт — футер
+/// (metaOffset, metaSize, crc32, магия), всё явным little-endian, поэтому число
+/// собирается сдвигами, а не чтением в тип.
+[[nodiscard]] std::uint64_t metaSectionBytes(const std::filesystem::path& path) {
+    std::ifstream in{path, std::ios::binary | std::ios::ate};
+    if (!in)
+        return 0;
+    const auto size = static_cast<std::uint64_t>(in.tellg());
+    if (size < StoreLayout::kFooterSize)
+        return 0;
+
+    std::array<std::uint8_t, StoreLayout::kFooterSize> footer{};
+    in.seekg(static_cast<std::streamoff>(size - StoreLayout::kFooterSize));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — istream::read требует char*
+    in.read(reinterpret_cast<char*>(footer.data()), static_cast<std::streamsize>(footer.size()));
+    if (in.gcount() != static_cast<std::streamsize>(footer.size()))
+        return 0;
+
+    std::uint64_t metaSize = 0;
+    for (std::size_t i = 8; i-- > 0;)  // второе поле футера, старший байт первым
+        metaSize = (metaSize << 8u) | footer[8 + i];
+    return metaSize;
+}
+
+/// Строки отчёта про память: доли статей считаются от аналитического total.
+void reportMemory(Bench::Report::Row row, const Hierarchy::MemoryUse& use, std::size_t indexBytes, std::size_t rssDelta,
+        std::uint32_t nodes, std::uint32_t liveStreams) {
+    const auto total = static_cast<double>(use.total());
+    // B/node — цена одного узла ИЕРАРХИИ; индекс сюда не подмешан, потому что
+    // растёт он не с узлами, а с потоками, которые реально переключаются
+    // (молчащий поток блоков не заводит). Его цена — отдельной колонкой B/str.
+    row.num("nodes", nodes, 0)
+            .num("meta_MiB", total / 1048576.0, 1)
+            .num("maps_%", 100.0 * static_cast<double>(use.indexes) / total)
+            .num("names_%", 100.0 * static_cast<double>(use.names) / total)
+            .num("B/node", total / nodes, 0)
+            .num("idx_MiB", static_cast<double>(indexBytes) / 1048576.0, 1)
+            .num("streams", liveStreams, 0);
+    if (indexBytes != 0)
+        row.num("B/str", static_cast<double>(indexBytes) / liveStreams, 0);
+    if (rssDelta != 0)
+        row.num("rss_MiB", static_cast<double>(rssDelta) / 1048576.0, 1);
+}
+
+void benchMeta(Bench::Report& report, const Options& opts) {
+    if (!wanted(opts, "meta"))
+        return;
+
+    Bench::MetaSpec spec;
+    // --scale масштабирует длительность дампа (specOf), а здесь дорога сама
+    // РАЗВЁРТКА, и число узлов случай масштабирует сам — как это делает crc32.
+    // Нижняя граница нужна, чтобы --scale=0.05 в CI оставался осмысленным.
+    spec.nodes =
+            std::max<std::uint32_t>(4096, static_cast<std::uint32_t>(static_cast<double>(spec.nodes) * opts.scale));
+
+    const TempStore tmp{"wasafe_bench_meta.wsfstore"};
+
+    if (wanted(opts, "meta_build")) {
+        Bench::releaseFreedMemory();
+        const std::size_t rss0 = Bench::residentBytes();
+
+        auto sink = makeMemoryBuilder();
+        const Bench::Timer timer;
+        const Bench::Stats stats = Bench::generateMeta(*sink, spec);
+        sink->finish();
+        const Database db = sink->takeDatabase();
+        const double ms = timer.ms();
+
+        const std::size_t rss1 = Bench::residentBytes();
+        reportMemory(report.add("meta_build").num("ms", ms), db.hierarchy().memoryUse(), db.storage().metadataBytes(),
+                rss1 > rss0 ? rss1 - rss0 : 0, spec.nodes, stats.streams);
+    }
+
+    if (wanted(opts, "meta_open")) {
+        Bench::Stats stats;
+        {
+            auto sink = makeIndexingBuilder(tmp.path);
+            stats = Bench::generateMeta(*sink, spec);
+            sink->finish();
+            std::ignore = sink->takeDatabase();
+        }
+
+        // Иначе дельта второго случая подряд бессмысленна: аллокатор держит
+        // освобождённое у себя, и RSS уже не опускается.
+        Bench::releaseFreedMemory();
+        const std::size_t rss0 = Bench::residentBytes();
+
+        const Bench::Timer timer;
+        const Database db = openStore(tmp.path);
+        const double ms = timer.ms();
+
+        const std::size_t rss1 = Bench::residentBytes();
+        const auto sect = static_cast<double>(metaSectionBytes(tmp.path));
+        reportMemory(report.add("meta_open").num("ms", ms).num("sect_MiB", sect / 1048576.0, 1),
+                db.hierarchy().memoryUse(), db.storage().metadataBytes(), rss1 > rss0 ? rss1 - rss0 : 0, spec.nodes,
+                stats.streams);
+    }
+}
+
 /// Тело замеров. Исключения ловит main: наружу из него они выходить не должны,
 /// а завершение через std::terminate прячет причину.
 int run(int argc, char** argv) {
@@ -516,6 +630,7 @@ int run(int argc, char** argv) {
     benchBlockSize(report, opts);
     benchCrc32(report, opts);
     benchVerifyBlocks(report, opts, corpus.path);
+    benchMeta(report, opts);
 
     report.print(opts.csv);
     return 0;

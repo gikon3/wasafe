@@ -53,6 +53,21 @@ public:
         StringMap<NodeId> memberIndex;       ///< имя члена -> узел
     };
 
+    /// Разбивка памяти, занятой метаданными иерархии.
+    ///
+    /// Счёт аналитический: он видит capacity контейнеров, но не округления
+    /// аллокатора и не фрагментацию, поэтому это НИЖНЯЯ граница — RSS процесса
+    /// будет заметно больше.
+    struct MemoryUse {
+        std::size_t nodes = 0;     ///< вектор узлов-сигналов: capacity x sizeof
+        std::size_t scopes = 0;    ///< вектор узлов-scope
+        std::size_t names = 0;     ///< heap имён -- ОБЕ копии: в узле и ключом карты
+        std::size_t indexes = 0;   ///< StringMap: bucket-массивы и узлы, без heap ключей
+        std::size_t children = 0;  ///< векторы childScopes / signals / children
+
+        [[nodiscard]] std::size_t total() const noexcept;
+    };
+
 public:
     Hierarchy();
 
@@ -80,6 +95,9 @@ public:
     }
     [[nodiscard]] std::size_t scopeCount() const noexcept { return scopes_.size(); }
     [[nodiscard]] std::size_t signalCount() const noexcept { return nodes_.size(); }
+
+    /// Во что обходятся метаданные этой иерархии. Проход по всем узлам и картам.
+    [[nodiscard]] MemoryUse memoryUse() const;
 
     /// Поиск сигнала по полному иерархическому пути ("top.u1.data[3].field").
     /// Разбирает '.', индексацию '[i]' и доступ к членам единообразно.

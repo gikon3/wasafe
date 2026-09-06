@@ -59,6 +59,14 @@ public:
     [[nodiscard]] TimeRange timeRange() const { return storage_->timeRange(); }
     [[nodiscard]] TimeScale timeScale() const { return storage_->timeScale(); }
 
+    /// Во что обходятся МЕТАДАННЫЕ этой БД: иерархия плюс геометрия блоков.
+    ///
+    /// Счёт аналитический и потому НИЖНЯЯ граница: округления аллокатора и
+    /// фрагментация в него не входят. Проход по всем узлам, O(узлов).
+    [[nodiscard]] std::size_t metadataBytes() const {
+        return hierarchy().memoryUse().total() + storage_->metadataBytes();
+    }
+
     // --- навигация по иерархии ----------------------------------------------
     [[nodiscard]] Scope root() const;
     /// Найти сигнал по полному пути ("top.u_cpu.regs[3].valid"). Работает для
