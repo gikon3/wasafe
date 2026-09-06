@@ -4,7 +4,42 @@
 #include <print>
 #include <string_view>
 
+#ifdef __linux__
+#include <unistd.h>
+
+#include <fstream>
+#include <tuple>
+#endif
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
+
 namespace Bench {
+
+std::size_t residentBytes() {
+#ifdef __linux__
+    // statm, а не status: два первых числа разбираются потоком без поиска ключа
+    // по строкам, а функция зовётся вокруг каждого замера. Первое поле — размер
+    // образа, второе — резидентные СТРАНИЦЫ, отсюда умножение на размер страницы.
+    std::ifstream f{"/proc/self/statm"};
+    unsigned long long total = 0;
+    unsigned long long resident = 0;
+    if (!(f >> total >> resident))
+        return 0;
+    const long page = ::sysconf(_SC_PAGESIZE);
+    if (page <= 0)
+        return 0;
+    return static_cast<std::size_t>(resident) * static_cast<std::size_t>(page);
+#else
+    return 0;
+#endif
+}
+
+void releaseFreedMemory() {
+#ifdef __GLIBC__
+    std::ignore = malloc_trim(0);
+#endif
+}
 
 namespace {
 

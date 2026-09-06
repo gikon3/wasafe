@@ -302,6 +302,10 @@ std::size_t LazyStorage::cachedBytes() const {
     return cache_->bytes();
 }
 
+std::size_t LazyStorage::metadataBytes() const {
+    return index_->byteSize();
+}
+
 std::unique_ptr<Storage> LazyStorage::duplicate() const {
     auto source = source_->duplicate();
     if (!source)

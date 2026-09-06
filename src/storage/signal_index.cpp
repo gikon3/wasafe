@@ -28,6 +28,17 @@ void SignalIndex::addBlock(SignalId id, BlockRef block) {
     streams_[id].blocks.push_back(block);  // упорядоченность поддерживает вызывающий
 }
 
+std::size_t SignalIndex::byteSize() const noexcept {
+    // Узел unordered_map: указатель на следующий плюс пара (ключ, локатор).
+    // Хеша в узле нет — std::hash<SignalId> noexcept, поэтому libstdc++ его не
+    // кэширует. На MSVC список двусвязный, и счёт занижен на указатель с узла.
+    using Node = decltype(streams_)::value_type;
+    std::size_t bytes = streams_.bucket_count() * sizeof(void*) + streams_.size() * (sizeof(void*) + sizeof(Node));
+    for (const auto& kv : streams_)
+        bytes += kv.second.blocks.capacity() * sizeof(BlockRef);
+    return bytes;
+}
+
 // ---------------------------------------------------------------------------
 // Сериализация: тело секции 'WSFI' в файле store. Магию, версию и длину секции
 // пишет вокруг этих байт слой раскладки (см. src/io/store_layout.hpp) — кодеку

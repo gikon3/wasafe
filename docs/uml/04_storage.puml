@@ -23,6 +23,8 @@ interface Storage {
     + prefetch(ids, range)
     + release(keep)
     + cachedBytes() : size_t
+    --
+    + metadataBytes() : size_t   «НЕ кэш: освободить нельзя»
 }
 
 interface Cursor {
@@ -163,6 +165,8 @@ class SignalIndex {
     + locate(id) : const SignalLocator*
     + locator(id) : SignalLocator&
     + addBlock(id, BlockRef)
+    + streamCount() : size_t
+    + byteSize() : size_t   «~107 Б на поток, растёт с блоками»
     --
     + encode(ByteWriter)  «секция метаданных store»
     + {static} decode(ByteReader) : SignalIndex

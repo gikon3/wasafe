@@ -1,8 +1,10 @@
 #include "waveform.hpp"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <string>
+#include <tuple>
 
 #include "wasafe/types/logic_vector.hpp"
 #include "wasafe/types/type.hpp"
@@ -184,6 +186,57 @@ std::uint64_t estimateChanges(const Spec& spec) {
 Stats generate(Builder& sink, const Spec& spec) {
     const std::vector<StreamInfo> streams = declareStreams(sink, spec);
     return emitChanges(sink, spec, streams);
+}
+
+Stats generateMeta(Builder& sink, const MetaSpec& spec) {
+    const std::uint32_t arrays = std::max(1u, spec.arrays);
+    const std::uint32_t perArray = std::max(1u, spec.nodes / arrays);
+    const std::uint32_t share = std::max(1u, spec.changeShare);
+
+    // Потоки тех элементов, что будут писать изменения. Полный список потоков
+    // (по одному на элемент) здесь НЕ удерживается: он весит столько же, сколько
+    // измеряемые метаданные, и исказил бы замер RSS.
+    std::vector<SignalId> emitters;
+    emitters.reserve(static_cast<std::size_t>(arrays) * (perArray / share + 1));
+
+    sink.setTimeScale({.exponent = -12, .scale = 1});
+    sink.beginScope("top", ScopeKind::MODULE);
+    for (std::uint32_t a = 0; a < arrays; ++a) {
+        sink.beginScope(std::format("u_bank{}", a), ScopeKind::MODULE);
+
+        const Type arr = makeArray(makeVector(7, 0), 0, static_cast<std::int32_t>(perArray) - 1);
+        // leaves из НЕВАЛИДНЫХ id. Ядро обрабатывает такой span так же, как
+        // пустой, — выделяет потоки само, — но записывает выделенное на место,
+        // и только так до потоков элементов можно добраться: у unpacked-композита
+        // declareVar возвращает невалидный id.
+        std::vector<SignalId> leaves(expansionStreamCount(arr));
+        std::ignore = sink.declareVar(std::format("mem{}", a), arr, std::nullopt, leaves);
+        for (std::size_t i = 0; i < leaves.size(); i += share)
+            emitters.push_back(leaves[i]);
+
+        sink.endScope();
+    }
+    sink.endScope();
+    sink.headerDone();
+
+    Stats stats;
+    // Потоки, которые реально пишут: только они попадают в SignalIndex —
+    // объявленный, но молчащий поток блоков не заводит, и индекса ему не нужно.
+    stats.streams = static_cast<std::uint32_t>(emitters.size());
+
+    Rng rng{spec.seed};
+    LogicVector value{8};
+    for (TimeStamp t = 0; t < spec.endTime; ++t) {
+        sink.setTime(t);
+        for (const SignalId id : emitters) {
+            const std::uint64_t bits = rng.next();
+            for (std::uint32_t bit = 0; bit < 8; ++bit)
+                value.set(bit, ((bits >> bit) & 1u) != 0 ? Logic::ONE : Logic::ZERO);
+            sink.valueChange(id, ValueView{value});
+            ++stats.changes;
+        }
+    }
+    return stats;
 }
 
 }  // namespace Bench
