@@ -202,6 +202,16 @@ CheckOptions:
     value: CamelCase
   - key: readability-identifier-naming.TypeAliasCase
     value: CamelCase
+  - key: readability-identifier-naming.TypeAliasIgnoredRegexp
+    value: "^(\
+      iterator_concept|iterator_category|value_type|difference_type|reference|pointer|element_type|\
+      size_type|const_reference|const_pointer|\
+      iterator|const_iterator|reverse_iterator|const_reverse_iterator|\
+      key_type|mapped_type|key_compare|hasher|key_equal|is_transparent|\
+      allocator_type|is_always_equal|propagate_on_container_copy_assignment|\
+      propagate_on_container_move_assignment|propagate_on_container_swap|\
+      type\
+      )$"
   - key: readability-identifier-naming.TypedefCase
     value: CamelCase
   - key: readability-identifier-naming.TypeTemplateParameterCase

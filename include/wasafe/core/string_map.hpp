@@ -10,7 +10,6 @@ namespace WaSafe {
 /// Прозрачный хеш для строк: позволяет искать в map по std::string_view без
 /// создания временного std::string (гетерогенный поиск, C++20+).
 struct TransparentStringHash {
-    // NOLINTNEXTLINE(readability-identifier-naming)
     using is_transparent = void;
     [[nodiscard]] std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
     [[nodiscard]] std::size_t operator()(const std::string& s) const noexcept {

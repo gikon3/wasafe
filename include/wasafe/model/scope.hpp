@@ -95,11 +95,11 @@ class WASAFE_API ScopeRange {
 public:
     class Iterator {
     public:
-        using IteratorCategory = std::forward_iterator_tag;
-        using ValueType = Scope;
-        using DifferenceType = std::ptrdiff_t;
-        using Reference = Scope;
-        using Pointer = void;
+        // Разыменование возвращает хэндл по значению: по концептам это
+        // forward-итератор, а iterator_traits выводит для него категорию input.
+        using iterator_concept = std::forward_iterator_tag;
+        using value_type = Scope;
+        using difference_type = std::ptrdiff_t;
 
     public:
         Iterator() = default;
