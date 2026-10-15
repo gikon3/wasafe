@@ -45,7 +45,7 @@ int main() {
     builder->finish();
 
     try {
-        auto db = builder->takeDatabase();
+        const auto db = builder->takeDatabase();
 
         // Единый обход: к структуре и к массиву применяется один и тот же API.
         if (auto req = db.find("top.req")) {

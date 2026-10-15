@@ -42,7 +42,7 @@ int main() {
     try {
         Demo::DemoReader reader;
         auto sink = WaSafe::makeMemoryBuilder();
-        auto db = WaSafe::ingest(reader, *sink);
+        const auto db = WaSafe::ingest(reader, *sink);
 
         // Фаза объявлений: все листовые узлы дизайна, обходом в глубину.
         // Packed-структура — один лист: наружу она отдаётся одним потоком, и её

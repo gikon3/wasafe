@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
         const TempStore store;
         Demo::DemoReader reader;
         auto sink = WaSafe::makeIndexingBuilder(store.path);
-        auto db = WaSafe::ingest(reader, *sink);
+        const auto db = WaSafe::ingest(reader, *sink);
 
         // Поиск по полному пути работает на любом уровне вложенности, включая
         // элементы массива и члены структуры: "top.cpu.regs[3].valid".

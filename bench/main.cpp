@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <print>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -315,7 +316,7 @@ void benchValueAt(Bench::Report& report, const Options& opts, const std::filesys
         const Bench::Timer timer;
         for (std::size_t q = 0; q < kQueries; ++q) {
             const NodeId node = leaves.nodes[rng.next() % leaves.nodes.size()];
-            const auto t = static_cast<TimeStamp>(range.begin + static_cast<TimeStamp>(rng.next() % span));
+            const auto t = range.begin + static_cast<TimeStamp>(rng.next() % span);
             seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(node, t).kind()));
         }
         const double ms = timer.ms();
@@ -380,7 +381,7 @@ void benchBlockSize(Bench::Report& report, const Options& opts) {
         const Bench::Timer queryTimer;
         for (std::size_t q = 0; q < kQueries; ++q) {
             const NodeId node = leaves.nodes[rng.next() % leaves.nodes.size()];
-            const auto t = static_cast<TimeStamp>(range.begin + static_cast<TimeStamp>(rng.next() % span));
+            const auto t = range.begin + static_cast<TimeStamp>(rng.next() % span);
             seen = mix(seen, static_cast<std::uint64_t>(db.valueAt(node, t).kind()));
         }
         const double queryMs = queryTimer.ms();
@@ -586,10 +587,9 @@ void benchMeta(Bench::Report& report, const Options& opts) {
 
 /// Тело замеров. Исключения ловит main: наружу из него они выходить не должны,
 /// а завершение через std::terminate прячет причину.
-int run(int argc, char** argv) {
+int run(std::span<char* const> args) {
     Options opts;
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg{argv[i]};
+    for (const std::string_view arg : args | std::views::drop(1)) {
         if (arg == "--csv") {
             opts.csv = true;
         }
@@ -642,7 +642,7 @@ int main(int argc, char** argv) {
     // Обработчики намеренно на fputs, а не на std::print: форматирование само
     // может бросить, и тогда исключение ушло бы уже из обработчика.
     try {
-        return run(argc, argv);
+        return run(std::span{argv, static_cast<std::size_t>(argc)});
     }
     catch (const std::exception& e) {
         std::fputs("ошибка: ", stderr);

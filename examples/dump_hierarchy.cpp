@@ -45,7 +45,7 @@ int main() {
         // Reader (какой именно — решает пользователь) + приёмник в ОЗУ.
         Demo::DemoReader reader;
         auto sink = WaSafe::makeMemoryBuilder();
-        auto db = WaSafe::ingest(reader, *sink);
+        const auto db = WaSafe::ingest(reader, *sink);
 
         std::println("timescale: {}", WaSafe::formatTimeScale(db.timeScale()));
         const auto tr = db.timeRange();
