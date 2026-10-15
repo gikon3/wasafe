@@ -265,7 +265,7 @@ TEST(Indexing, EndToEndLazyRead) {
     b->valueChange(r, 2.5);
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     EXPECT_EQ(db.timeRange(), (TimeRange{0, 41}));
     EXPECT_EQ(db.timeScale(), (TimeScale{.exponent = static_cast<int>(TimeUnit::PS), .scale = 1}));
@@ -337,7 +337,7 @@ TEST(Indexing, PackedMemberChangesLazy) {
     b->valueChange(req, v2.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     const auto collect = [](ValueCursor cur) {
         std::vector<std::pair<TimeStamp, std::string>> out;
@@ -392,7 +392,7 @@ TEST(Indexing, StreamsToDiskBeforeFinish) {
     EXPECT_GT(sizeBeforeFinish, 0u) << "store пуст до finish() — запись не потоковая";
 
     b->finish();
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // И результат при этом корректен.
     const auto bus = db.find("top.bus");
@@ -427,7 +427,7 @@ TEST(Indexing, BufferBudgetSplitsBlocks) {
             b->valueChange(id, (i % 2 == 0 ? a : c).view());
     }
     b->finish();
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // Досрочные сбросы действительно произошли.
     const Database reopened = openStore(tmp.path);
@@ -480,7 +480,7 @@ TEST(Indexing, ZstdCompressLargeBlock) {
     }
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     const Database reopened = openStore(tmp.path);
     const SignalLocator* loc = indexOfReopened(reopened).locate(w);

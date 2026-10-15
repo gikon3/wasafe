@@ -69,7 +69,7 @@ void generate(Builder& sink) {
         for (std::size_t i = 0; i < kSignals; ++i) {
             if (t % static_cast<TimeStamp>(i + 1) != 0)
                 continue;
-            const auto bit = static_cast<unsigned>((t >> i) & 1);
+            const auto bit = (static_cast<std::uint64_t>(t) >> i) & 1u;
             const LogicScratch v{4, bit != 0 ? "1010" : "0101"};
             sink.valueChange(ids[i], v.view());
         }

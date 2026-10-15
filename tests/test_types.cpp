@@ -12,17 +12,17 @@ using namespace WaSafe;
 
 // ширина вектора
 TEST(Types, VectorWidth) {
-    auto v = makeVector(7, 0);
+    const auto v = makeVector(7, 0);
     ASSERT_EQ(v->kind(), TypeKind::VECTOR);
     EXPECT_EQ(v->bitWidth(), 8u);
 
-    auto v2 = makeVector(0, 31);  // обратный порядок битов
+    const auto v2 = makeVector(0, 31);  // обратный порядок битов
     EXPECT_EQ(v2->bitWidth(), 32u);
 }
 
 // packed-структура: ширина и поиск члена
 TEST(Types, PackedStructWidthAndLookup) {
-    auto s = makeStruct(
+    const auto s = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), 1},
                     StructMember{"valid", makeScalar(), 0},
@@ -40,8 +40,8 @@ TEST(Types, PackedStructWidthAndLookup) {
 // многомерный массив выражается вложением
 TEST(Types, MultiDimArrayNesting) {
     // logic[3:0] mem [0:1][0:1]
-    auto inner = makeArray(makeVector(3, 0), 0, 1);
-    auto mem = makeArray(inner, 0, 1);
+    const auto inner = makeArray(makeVector(3, 0), 0, 1);
+    const auto mem = makeArray(inner, 0, 1);
 
     const auto* outer = mem->as<ArrayType>();
     ASSERT_NE(outer, nullptr);
@@ -53,7 +53,7 @@ TEST(Types, MultiDimArrayNesting) {
 
 // Индекс вне диапазона массива не даёт мусорный порядковый номер.
 TEST(Types, ArrayIndexOutOfRange) {
-    auto asc = makeArray(makeScalar(), 0, 3);  // [0:3]
+    const auto asc = makeArray(makeScalar(), 0, 3);  // [0:3]
     const auto* up = asc->as<ArrayType>();
     ASSERT_NE(up, nullptr);
     EXPECT_EQ(up->elementCount(), 4u);
@@ -62,7 +62,7 @@ TEST(Types, ArrayIndexOutOfRange) {
     EXPECT_FALSE(up->ordinalOf(-1).has_value());
     EXPECT_FALSE(up->ordinalOf(4).has_value());
 
-    auto desc = makeArray(makeScalar(), 3, 0);  // [3:0]: ord 0 — это indexLeft
+    const auto desc = makeArray(makeScalar(), 3, 0);  // [3:0]: ord 0 — это indexLeft
     const auto* down = desc->as<ArrayType>();
     ASSERT_NE(down, nullptr);
     EXPECT_EQ(down->ordinalOf(3), 0u);
@@ -73,7 +73,7 @@ TEST(Types, ArrayIndexOutOfRange) {
 
 // Порядковый номер вне числа элементов не даёт мусорный индекс.
 TEST(Types, ArrayOrdinalOutOfRange) {
-    auto t = makeArray(makeScalar(), 3, 0);
+    const auto t = makeArray(makeScalar(), 3, 0);
     const auto* at = t->as<ArrayType>();
     ASSERT_NE(at, nullptr);
     EXPECT_EQ(at->indexOf(0), 3);
@@ -88,7 +88,7 @@ TEST(Types, ArrayExtremeIndexBounds) {
     constexpr std::int32_t kHi = std::numeric_limits<std::int32_t>::max();
     constexpr std::size_t kCount = std::size_t{1} << 32;
 
-    auto asc = makeArray(makeScalar(), kLo, kHi);
+    const auto asc = makeArray(makeScalar(), kLo, kHi);
     const auto* up = asc->as<ArrayType>();
     ASSERT_NE(up, nullptr);
     EXPECT_EQ(up->elementCount(), kCount);
@@ -96,7 +96,7 @@ TEST(Types, ArrayExtremeIndexBounds) {
     EXPECT_EQ(up->ordinalOf(0), std::size_t{1} << 31);
     EXPECT_EQ(up->ordinalOf(kHi), kCount - 1);
 
-    auto desc = makeArray(makeScalar(), kHi, kLo);
+    const auto desc = makeArray(makeScalar(), kHi, kLo);
     const auto* down = desc->as<ArrayType>();
     ASSERT_NE(down, nullptr);
     EXPECT_EQ(down->elementCount(), kCount);
@@ -107,7 +107,7 @@ TEST(Types, ArrayExtremeIndexBounds) {
 
 // indexOf и ordinalOf обратны друг другу на всём диапазоне, включая ноль внутри.
 TEST(Types, ArrayIndexOrdinalRoundTrip) {
-    auto t = makeArray(makeScalar(), 7, -8);
+    const auto t = makeArray(makeScalar(), 7, -8);
     const auto* at = t->as<ArrayType>();
     ASSERT_NE(at, nullptr);
     ASSERT_EQ(at->elementCount(), 16u);

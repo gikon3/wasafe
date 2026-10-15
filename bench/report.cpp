@@ -7,6 +7,7 @@
 #ifdef __linux__
 #include <unistd.h>
 
+#include <cstdint>
 #include <fstream>
 #include <tuple>
 #endif
@@ -22,11 +23,11 @@ std::size_t residentBytes() {
     // по строкам, а функция зовётся вокруг каждого замера. Первое поле — размер
     // образа, второе — резидентные СТРАНИЦЫ, отсюда умножение на размер страницы.
     std::ifstream f{"/proc/self/statm"};
-    unsigned long long total = 0;
-    unsigned long long resident = 0;
+    std::uint64_t total = 0;
+    std::uint64_t resident = 0;
     if (!(f >> total >> resident))
         return 0;
-    const long page = ::sysconf(_SC_PAGESIZE);
+    const std::int64_t page = ::sysconf(_SC_PAGESIZE);
     if (page <= 0)
         return 0;
     return static_cast<std::size_t>(resident) * static_cast<std::size_t>(page);

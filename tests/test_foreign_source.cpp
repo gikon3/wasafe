@@ -109,7 +109,7 @@ std::string logicStr(ValueView v) {
 TEST(ForeignSource, StreamsShareChunkOffset) {
     const SignalId a{0};
     const SignalId b{1};
-    auto be = makeBackend(a, b);
+    const auto be = makeBackend(a, b);
 
     EXPECT_EQ(logicStr(be.storage.valueAt(a, 5)), "0001");
     EXPECT_EQ(logicStr(be.storage.valueAt(b, 5)), "1111");
@@ -122,7 +122,7 @@ TEST(ForeignSource, StreamsShareChunkOffset) {
 TEST(ForeignSource, CacheKeepsStreamsApart) {
     const SignalId a{0};
     const SignalId b{1};
-    auto be = makeBackend(a, b);
+    const auto be = makeBackend(a, b);
 
     EXPECT_EQ(be.source->decodeCalls(), 0);
     std::ignore = be.storage.valueAt(a, 5);
@@ -138,9 +138,9 @@ TEST(ForeignSource, CacheKeepsStreamsApart) {
 TEST(ForeignSource, CursorPerStream) {
     const SignalId a{0};
     const SignalId b{1};
-    auto be = makeBackend(a, b);
+    const auto be = makeBackend(a, b);
 
-    auto collect = [](std::unique_ptr<Cursor> cur) {
+    const auto collect = [](std::unique_ptr<Cursor> cur) {
         std::vector<std::pair<TimeStamp, std::string>> got;
         while (cur->next())
             got.emplace_back(cur->current().time, logicStr(cur->current().value));
@@ -163,7 +163,7 @@ TEST(ForeignSource, CursorPerStream) {
 TEST(ForeignSource, MergedCursorTagsSource) {
     const SignalId a{0};
     const SignalId b{1};
-    auto be = makeBackend(a, b);
+    const auto be = makeBackend(a, b);
 
     const std::array ids = {a, b};
     auto cur = be.storage.openCursor(ids, {0, 100});
@@ -182,7 +182,7 @@ TEST(ForeignSource, MergedCursorTagsSource) {
 // Второй механизм ключа: два блока ОДНОГО потока по общему смещению.
 TEST(ForeignSource, CookieSeparatesBlocksOfOneStream) {
     const SignalId a{0};
-    auto be = makeCookieBackend(a);
+    const auto be = makeCookieBackend(a);
 
     EXPECT_EQ(logicStr(be.storage.valueAt(a, 5)), "0001");
     EXPECT_EQ(logicStr(be.storage.valueAt(a, 15)), "0010");

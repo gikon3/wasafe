@@ -56,6 +56,7 @@ public:
     [[nodiscard]] Aggregate* ifAggregate() noexcept { return std::get_if<Aggregate>(&storage_); }
     [[nodiscard]] const Aggregate* ifAggregate() const noexcept { return std::get_if<Aggregate>(&storage_); }
 
+    // NOLINTNEXTLINE(misc-explicit-constructor) — владеющее значение передаётся туда, где ждут view
     [[nodiscard]] operator ValueView() const noexcept;
 
 private:

@@ -23,10 +23,13 @@ enum class ValueKind : std::uint8_t {
 class WASAFE_API ValueView final {
 public:
     ValueView() noexcept = default;
+    // Конструкторы неявные: значение любого вида передаётся туда, где ждут ValueView.
+    // NOLINTBEGIN(misc-explicit-constructor)
     ValueView(LogicVectorView logic) noexcept : value_{logic} {}
     ValueView(double real) noexcept : value_{real} {}
     ValueView(std::string_view string) noexcept : value_{string} {}
     ValueView(const LogicVector& value) noexcept : value_{value} {}
+    // NOLINTEND(misc-explicit-constructor)
 
     [[nodiscard]] bool valid() const noexcept { return !std::holds_alternative<std::monostate>(value_); }
 

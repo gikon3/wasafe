@@ -1,8 +1,12 @@
 # Конфигурация для тестов наследует корневую и ослабляет проверки, которые
 # для тестового кода дают только шум:
 #   * unchecked-optional-access — типичный паттерн ASSERT_TRUE(opt); opt->...;
-#   * function-cognitive-complexity — тело TEST(...) это длинная цепочка проверок.
+#   * function-cognitive-complexity считается без макросов: EXPECT_*/ASSERT_*
+#     разворачиваются в if/else и try/catch, и тест из десятка проверок без
+#     единого собственного ветвления превышал бы порог.
 InheritParentConfig: true
 Checks: >
-  -bugprone-unchecked-optional-access,
-  -readability-function-cognitive-complexity
+  -bugprone-unchecked-optional-access
+CheckOptions:
+  - key: readability-function-cognitive-complexity.IgnoreMacros
+    value: true

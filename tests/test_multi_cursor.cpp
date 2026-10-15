@@ -228,7 +228,7 @@ TEST(MultiCursor, DatabaseMixedNodes) {
     b->valueChange(e1, m1.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     const auto clkSig = db.find("top.clk");
     const auto addrSig = db.find("top.req.addr");
@@ -270,7 +270,7 @@ TEST(MultiCursor, CompositeNumbersDifferBetweenOverloads) {
     b->valueChange(SignalId{1}, m1.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     const auto memSig = db.find("top.mem");
     ASSERT_TRUE(memSig);
 
@@ -310,7 +310,7 @@ TEST(MultiCursor, ExportWholeDesign) {
     b->valueChange(pc, p1.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // Обход вложенных scope: сигналы scope идут раньше его подскоупов.
     const std::vector<NodeId> leaves = db.leafNodes(db.root().id());
