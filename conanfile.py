@@ -62,7 +62,7 @@ class WaSafeConan(ConanFile):
 
     def build_requirements(self):
         if not self._skip_test:
-            self.test_requires("gtest/1.17.0")
+            self.test_requires("gtest/1.18.0")
 
     def validate(self):
         check_min_cppstd(self, "23")

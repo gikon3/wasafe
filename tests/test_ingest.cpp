@@ -93,7 +93,7 @@ TEST(Ingest, HeaderOnly) {
     Fake::FakeReader reader;
     auto sink = makeMemoryBuilder();
 
-    auto db = ingestHeader(reader, *sink);
+    const auto db = ingestHeader(reader, *sink);
 
     EXPECT_TRUE(db.find("top.clk"));
     EXPECT_TRUE(db.find("top.sub.rst"));

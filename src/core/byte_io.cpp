@@ -61,6 +61,7 @@ template <class T, class Raw>
 
 /// Зигзаг: знак уезжает в младший бит, поэтому -1 стоит один байт, а не десять.
 [[nodiscard]] std::uint64_t zigzag(std::int64_t v) noexcept {
+    // NOLINTNEXTLINE(bugprone-signed-bitwise) — арифметический сдвиг размножает знак на все 64 бита
     return (static_cast<std::uint64_t>(v) << 1u) ^ static_cast<std::uint64_t>(v >> 63);
 }
 

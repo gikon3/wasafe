@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <concepts>
 #include <cstddef>
 #include <format>
+#include <iterator>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -11,6 +14,8 @@
 #include "wasafe/io/builder.hpp"
 #include "wasafe/model/database.hpp"
 #include "wasafe/model/hierarchy.hpp"
+#include "wasafe/model/scope.hpp"
+#include "wasafe/model/signal.hpp"
 
 using namespace WaSafe;
 
@@ -63,6 +68,13 @@ Database buildNestedDb() {
 }
 
 }  // namespace
+
+// Итераторы отдают хэндлы по значению: forward для концептов, input для iterator_traits
+static_assert(std::ranges::forward_range<SignalChildRange>);
+static_assert(
+        std::same_as<std::iterator_traits<SignalChildRange::Iterator>::iterator_category, std::input_iterator_tag>);
+static_assert(std::ranges::forward_range<ScopeRange>);
+static_assert(std::same_as<std::iterator_traits<ScopeRange::Iterator>::iterator_category, std::input_iterator_tag>);
 
 // построение иерархии: scope и сигналы
 TEST(Hierarchy, BuildScopesAndSignals) {

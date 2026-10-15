@@ -48,7 +48,7 @@ TEST(Memory, ScalarValueAtCursorEdges) {
     b->valueChange(clkId, hi.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     EXPECT_EQ(db.timeRange(), (TimeRange{0, 31}));
 
@@ -97,7 +97,7 @@ TEST(Memory, RealAndStringStreams) {
     b->valueChange(s, "run"sv);
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     EXPECT_DOUBLE_EQ(db.find("top.temp")->valueAt(0).asReal(), 1.5);
     EXPECT_DOUBLE_EQ(db.find("top.temp")->valueAt(10).asReal(), -2.25);
@@ -127,7 +127,7 @@ TEST(Memory, PackedStructAggregateAndSlices) {
     b->valueChange(req, v.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     const auto sig = db.find("top.req");
     ASSERT_TRUE(sig);
@@ -173,7 +173,7 @@ TEST(Memory, PackedMemberChangesAndEdges) {
     b->valueChange(req, v2.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // Собрать (время, значение) из курсора члена.
     const auto collect = [](ValueCursor cur) {
@@ -247,7 +247,7 @@ TEST(Memory, PackedArrayElementChangesAndEdges) {
     b->valueChange(arr, v1.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     const auto e0 = db.find("top.arr[0]");
     const auto e1 = db.find("top.arr[1]");
@@ -303,7 +303,7 @@ TEST(Memory, UnpackedArrayOwnStreamsMergeCursor) {
     b->valueChange(e0, m0b.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // Доступ к элементам единым Signal-API, индексация на любом уровне.
     EXPECT_EQ(db.find("top.mem[0]")->valueAt(0).asLogic().toString(), "0001");
@@ -354,7 +354,7 @@ TEST(Memory, ExplicitLeavesFillAllocatedStreams) {
     b->valueChange(leaves[1], m1.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     EXPECT_EQ(db.find("top.mem[0]")->valueAt(0).asLogic().toString(), "0001");
     EXPECT_EQ(db.find("top.mem[1]")->valueAt(0).asLogic().toString(), "0010");
     EXPECT_TRUE(db.find("top.mem")->valueAt(0).isAggregate());
@@ -381,7 +381,7 @@ TEST(Memory, ExplicitLeavesBindExistingStreamAsAlias) {
     b->valueChange(shared, v.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     EXPECT_EQ(db.find("top.plain")->valueAt(0).asLogic().toString(), "1011");
     EXPECT_EQ(db.find("top.mem[1]")->valueAt(0).asLogic().toString(), "1011");
 }
@@ -413,7 +413,7 @@ TEST(Memory, ExplicitLeavesNestedArrayOrder) {
         b->valueChange(leaves[i], vals[i].view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     for (std::size_t i = 0; i < paths.size(); ++i) {
         const auto sig = db.find(paths[i]);
         ASSERT_TRUE(sig) << paths[i];
@@ -440,7 +440,7 @@ TEST(Memory, ExplicitLeavesDescendingRangeStartsAtIndexLeft) {
         b->valueChange(leaves[i], zero.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     EXPECT_EQ(db.find("top.bus[3]")->valueAt(0).asLogic().toString(), "1");
     EXPECT_EQ(db.find("top.bus[0]")->valueAt(0).asLogic().toString(), "0");
 }
@@ -471,7 +471,7 @@ TEST(Memory, ExpansionCountCoversPackedElementWithSingleStream) {
     b->valueChange(leaves[2], v.view());
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     EXPECT_EQ(db.find("top.arr[2].addr")->valueAt(0).asLogic().toString(), "10100101");
     EXPECT_EQ(db.find("top.arr[2].valid")->valueAt(0).asLogic().toString(), "1");
 }
@@ -499,7 +499,7 @@ TEST(Memory, ExplicitLeavesWrongSizeThrowsWithoutSideEffects) {
     b->headerDone();
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     // Ни один неудавшийся вызов не оставил узла в иерархии.
     EXPECT_TRUE(db.find("top.mem[1]"));
     EXPECT_FALSE(db.find("top.scalar"));
@@ -526,7 +526,7 @@ TEST(Memory, ExplicitLeavesAreNotConsumedInsidePackedSubtree) {
     b->headerDone();
     b->finish();
 
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
     // Элементы верхнего уровня — ровно потоки из span, в объявленном порядке.
     EXPECT_EQ(db.find("top.s[0]")->streamId(), std::optional{leaves[0]});
     EXPECT_EQ(db.find("top.s[1]")->streamId(), std::optional{leaves[1]});
@@ -602,7 +602,7 @@ TEST(Memory, WideStreamAndSliceAcrossWordBoundary) {
     b->setTime(10);
     b->valueChange(w, LogicScratch{kWidth, other}.view());
     b->finish();
-    auto db = b->takeDatabase();
+    const auto db = b->takeDatabase();
 
     // Весь поток вернулся разряд в разряд: члены объявлены от старших битов к
     // младшим и покрывают ширину целиком, поэтому агрегат склеивается в исходную

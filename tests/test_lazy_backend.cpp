@@ -61,7 +61,7 @@ std::string logicStr(ValueView v) {
 // LazyStorage::value_at — точечный поиск с переносом между блоками
 TEST(LazyBackend, ValueAtAcrossBlocks) {
     const SignalId s{0};
-    auto be = makeBackend(s);
+    const auto be = makeBackend(s);
 
     EXPECT_EQ(be.valueAt(s, -1).kind(), ValueKind::NONE);  // до начала данных
     EXPECT_EQ(logicStr(be.valueAt(s, 0)), "0001");
@@ -76,7 +76,7 @@ TEST(LazyBackend, ValueAtAcrossBlocks) {
 // LazyStorage::open_cursor — ленивый обход диапазона через границу блока
 TEST(LazyBackend, CursorAcrossBlockBoundary) {
     const SignalId s{0};
-    auto be = makeBackend(s);
+    const auto be = makeBackend(s);
 
     auto cur = be.openCursor(s, {5, 35});
     std::vector<std::pair<TimeStamp, std::string>> got;
@@ -92,7 +92,7 @@ TEST(LazyBackend, CursorAcrossBlockBoundary) {
 // LazyStorage::open_cursor — пустой диапазон
 TEST(LazyBackend, CursorEmptyRange) {
     const SignalId s{0};
-    auto be = makeBackend(s);
+    const auto be = makeBackend(s);
     auto cur = be.openCursor(s, {100, 200});
     EXPECT_FALSE(cur->next());
 }
@@ -100,7 +100,7 @@ TEST(LazyBackend, CursorEmptyRange) {
 // LazyStorage::next_change / prev_change
 TEST(LazyBackend, NextPrevChange) {
     const SignalId s{0};
-    auto be = makeBackend(s);
+    const auto be = makeBackend(s);
 
     EXPECT_EQ(be.nextChange(s, 10), 20);
     EXPECT_EQ(be.nextChange(s, 20), 30);  // переход в следующий блок
@@ -200,7 +200,7 @@ TEST(LazyBackend, TwoStateBlockIsSmaller) {
 // unknown signal id — пустые результаты
 TEST(LazyBackend, UnknownSignalId) {
     const SignalId s{0};
-    auto be = makeBackend(s);
+    const auto be = makeBackend(s);
     const SignalId missing{42};
 
     EXPECT_EQ(be.valueAt(missing, 10).kind(), ValueKind::NONE);

@@ -302,7 +302,7 @@ std::string Hierarchy::pathOf(NodeId node) const {
     }
 
     std::string local;
-    for (auto part : std::views::reverse(parts)) {
+    for (const auto part : std::views::reverse(parts)) {
         if (local.empty()) {
             local = std::string{part};
         }

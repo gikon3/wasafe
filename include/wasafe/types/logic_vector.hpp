@@ -56,6 +56,7 @@ public:
             return *this;
         }
 
+        // NOLINTNEXTLINE(misc-explicit-constructor) — прокси бита читается как значение Logic
         operator Logic() const noexcept {
             const unsigned a = (*a_ & mask_) ? 1u : 0u;
             const unsigned b = (*b_ & mask_) ? 1u : 0u;
@@ -142,6 +143,7 @@ public:
         return LogicRef{&a_[word], &b_[word], mask};
     }
 
+    // NOLINTNEXTLINE(misc-explicit-constructor) — владеющий вектор передаётся туда, где ждут view
     operator LogicVectorView() const noexcept { return view(); }
 
 private:

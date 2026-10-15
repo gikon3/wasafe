@@ -68,6 +68,7 @@ public:
     ///                ровно как и у alias.
     /// @return SignalId листового потока, в который пойдут value_change;
     ///         у unpacked-композита невалиден.
+    // NOLINTNEXTLINE(google-default-arguments) — умолчания есть только здесь, переопределения их не повторяют
     [[nodiscard]] virtual SignalId declareVar(std::string_view name, Type type,
             std::optional<SignalId> alias = std::nullopt, std::span<SignalId> leaves = {}) = 0;
 
