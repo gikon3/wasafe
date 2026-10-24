@@ -246,6 +246,6 @@ TEST(HierarchyCodec, RejectsCorruptStream) {
     for (const std::size_t cut : {std::size_t{0}, buf.size() / 3, buf.size() / 2, buf.size() - 1}) {
         std::vector<std::byte> truncated{buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(cut)};
         ByteReader r{truncated};
-        EXPECT_THROW((void)decodeHierarchy(r), Exception) << "cut = " << cut;
+        EXPECT_THROW(std::ignore = decodeHierarchy(r), Exception) << "cut = " << cut;
     }
 }

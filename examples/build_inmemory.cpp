@@ -22,20 +22,18 @@ int main() {
     builder->beginScope("top", ScopeKind::MODULE);
 
     // Упакованная структура объявляется ОДНИМ declare_var с композитным типом.
-    Type const reqT = makeStruct(
+    const Type reqT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
             },
             /*packed=*/true);
-    const SignalId reqStream = builder->declareVar("req", reqT);  // один поток на packed-struct
+    [[maybe_unused]] const SignalId reqStream = builder->declareVar("req", reqT);  // один поток на packed-struct
 
     // Двумерный массив: элемент — вектор [3:0], два измерения [0:1][0:1].
     // Распакованный — единого потока нет (значения хранят листья-элементы).
-    Type const memT = makeArray(makeArray(makeVector(3, 0), 0, 1), 0, 1);
-    const SignalId memStream = builder->declareVar("mem", memT);
-    (void)reqStream;
-    (void)memStream;
+    const Type memT = makeArray(makeArray(makeVector(3, 0), 0, 1), 0, 1);
+    [[maybe_unused]] const SignalId memStream = builder->declareVar("mem", memT);
 
     builder->endScope();
     builder->headerDone();
@@ -50,9 +48,8 @@ int main() {
         // Единый обход: к структуре и к массиву применяется один и тот же API.
         if (auto req = db.find("top.req")) {
             std::println("req has {} members:", req->childCount());
-            for (const Signal m : req->children()) {
+            for (const Signal m : req->children())
                 std::println("  .{} : {}", m.name(), toSvString(m.type()));
-            }
         }
         if (auto mem = db.find("top.mem")) {
             // mem[1][0] — та же индексация на любом уровне вложенности массива.

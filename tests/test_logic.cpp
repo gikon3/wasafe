@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <tuple>
 
 #include "wasafe/core/exception.hpp"
 #include "wasafe/types/value.hpp"
@@ -33,7 +34,7 @@ TEST(Logic, DynamicBitsetApi) {
     EXPECT_EQ(v.test(1), Logic::ZERO);
 
     // проверка границ
-    EXPECT_THROW((void)v.test(4), Exception);
+    EXPECT_THROW(std::ignore = v.test(4), Exception);
     EXPECT_THROW(v.flip(4), Exception);
 
     // push_back / pop_back растят и сжимают
@@ -297,13 +298,13 @@ TEST(Logic, RadixUnknownThrows) {
     // Значение вне Radix здесь и есть предмет проверки: анализатор прав по
     // существу, но ровно эту ситуацию тест и воспроизводит.
     // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
-    EXPECT_THROW((void)v.toString(static_cast<Radix>(99)), Exception);
-    EXPECT_NO_THROW((void)v.toString(Radix::HEX));
+    EXPECT_THROW(std::ignore = v.toString(static_cast<Radix>(99)), Exception);
+    EXPECT_NO_THROW(std::ignore = v.toString(Radix::HEX));
 
     // Нулевая ширина отсекается раньше switch — там броска нет.
     const LogicVector empty;
     // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
-    EXPECT_NO_THROW((void)empty.toString(static_cast<Radix>(99)));
+    EXPECT_NO_THROW(std::ignore = empty.toString(static_cast<Radix>(99)));
 }
 
 // --- Срез бит-планов --------------------------------------------------------

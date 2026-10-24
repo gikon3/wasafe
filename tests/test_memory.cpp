@@ -110,7 +110,7 @@ TEST(Memory, PackedStructAggregateAndSlices) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
     // struct packed { logic[7:0] addr; logic valid; } — valid в бите 0, addr в [8:1].
-    Type const reqT = makeStruct(
+    const Type reqT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
@@ -151,7 +151,7 @@ TEST(Memory, PackedStructAggregateAndSlices) {
 TEST(Memory, PackedMemberChangesAndEdges) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const reqT = makeStruct(
+    const Type reqT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
@@ -232,7 +232,7 @@ TEST(Memory, PackedMemberChangesAndEdges) {
 TEST(Memory, PackedArrayElementChangesAndEdges) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const arrT = makeArray(makeVector(3, 0), 0, 1, /*packed=*/true);
+    const Type arrT = makeArray(makeVector(3, 0), 0, 1, /*packed=*/true);
     const SignalId arr = b->declareVar("arr", arrT);
     ASSERT_TRUE(arr.valid());
     b->endScope();
@@ -279,7 +279,7 @@ TEST(Memory, UnpackedArrayOwnStreamsMergeCursor) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
     // logic[3:0] mem[0:1] — распакованный массив: у каждого элемента свой поток.
-    Type const memT = makeArray(makeVector(3, 0), 0, 1);
+    const Type memT = makeArray(makeVector(3, 0), 0, 1);
     const SignalId mem = b->declareVar("mem", memT);
     EXPECT_FALSE(mem.valid());  // у unpacked-композита нет единого потока
     b->endScope();
@@ -336,7 +336,7 @@ TEST(Memory, UnpackedArrayOwnStreamsMergeCursor) {
 TEST(Memory, ExplicitLeavesFillAllocatedStreams) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const memT = makeArray(makeVector(3, 0), 0, 1);
+    const Type memT = makeArray(makeVector(3, 0), 0, 1);
     ASSERT_EQ(expansionStreamCount(memT), 2u);
 
     std::vector<SignalId> leaves(expansionStreamCount(memT));
@@ -367,7 +367,7 @@ TEST(Memory, ExplicitLeavesBindExistingStreamAsAlias) {
     const SignalId shared = b->declareVar("plain", makeVector(3, 0));
     ASSERT_TRUE(shared.valid());
 
-    Type const memT = makeArray(makeVector(3, 0), 0, 1);
+    const Type memT = makeArray(makeVector(3, 0), 0, 1);
     std::vector<SignalId> leaves(expansionStreamCount(memT));
     leaves[1] = shared;  // mem[1] — то же самое, что plain
     std::ignore = b->declareVar("mem", memT, std::nullopt, leaves);
@@ -391,7 +391,7 @@ TEST(Memory, ExplicitLeavesBindExistingStreamAsAlias) {
 TEST(Memory, ExplicitLeavesNestedArrayOrder) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const mT = makeArray(makeArray(makeVector(3, 0), 0, 1), 0, 1);
+    const Type mT = makeArray(makeArray(makeVector(3, 0), 0, 1), 0, 1);
     // elementCount() внешнего измерения — 2, а потоков 4.
     EXPECT_EQ(mT->elementCount(), 2u);
     ASSERT_EQ(expansionStreamCount(mT), 4u);
@@ -425,7 +425,7 @@ TEST(Memory, ExplicitLeavesNestedArrayOrder) {
 TEST(Memory, ExplicitLeavesDescendingRangeStartsAtIndexLeft) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const busT = makeArray(makeScalar(), 3, 0);
+    const Type busT = makeArray(makeScalar(), 3, 0);
     std::vector<SignalId> leaves(expansionStreamCount(busT));
     ASSERT_EQ(leaves.size(), 4u);
     std::ignore = b->declareVar("bus", busT, std::nullopt, leaves);
@@ -447,7 +447,7 @@ TEST(Memory, ExplicitLeavesDescendingRangeStartsAtIndexLeft) {
 
 // Packed-элемент покрывается ОДНИМ потоком: его члены потоков не получают.
 TEST(Memory, ExpansionCountCoversPackedElementWithSingleStream) {
-    Type const packedT = makeStruct(
+    const Type packedT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
@@ -456,7 +456,7 @@ TEST(Memory, ExpansionCountCoversPackedElementWithSingleStream) {
     EXPECT_TRUE(singleStreamRepresentable(packedT));
     EXPECT_EQ(expansionStreamCount(packedT), 0u);  // сам представим одним потоком
 
-    Type const arrT = makeArray(packedT, 0, 3);
+    const Type arrT = makeArray(packedT, 0, 3);
     EXPECT_EQ(expansionStreamCount(arrT), 4u);  // по потоку на элемент, а не на член
 
     auto b = makeMemoryBuilder();
@@ -481,7 +481,7 @@ TEST(Memory, ExpansionCountCoversPackedElementWithSingleStream) {
 TEST(Memory, ExplicitLeavesWrongSizeThrowsWithoutSideEffects) {
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const memT = makeArray(makeVector(3, 0), 0, 1);
+    const Type memT = makeArray(makeVector(3, 0), 0, 1);
 
     std::vector<SignalId> tooShort(1);
     EXPECT_THROW(std::ignore = b->declareVar("mem", memT, std::nullopt, tooShort), Exception);
@@ -510,9 +510,9 @@ TEST(Memory, ExplicitLeavesWrongSizeThrowsWithoutSideEffects) {
 // unpacked-узел (в SV так нельзя, но модель типов это допускает), потоки его
 // листьев выделяет ядро, а leaves покрывает ровно элементы верхнего уровня.
 TEST(Memory, ExplicitLeavesAreNotConsumedInsidePackedSubtree) {
-    Type const inner = makeArray(makeScalar(), 0, 1);  // unpacked внутри packed
-    Type const packedT = makeStruct({StructMember{"a", inner, /*bit_offset*/ 0}}, /*packed=*/true);
-    Type const outerT = makeArray(packedT, 0, 1);
+    const Type inner = makeArray(makeScalar(), 0, 1);  // unpacked внутри packed
+    const Type packedT = makeStruct({StructMember{"a", inner, /*bit_offset*/ 0}}, /*packed=*/true);
+    const Type outerT = makeArray(packedT, 0, 1);
     ASSERT_EQ(expansionStreamCount(outerT), 2u);  // по потоку на packed-элемент
 
     auto b = makeMemoryBuilder();
@@ -581,7 +581,7 @@ TEST(Memory, WideStreamAndSliceAcrossWordBoundary) {
 
     auto b = makeMemoryBuilder();
     b->beginScope("top", ScopeKind::MODULE);
-    Type const wideT = makeStruct(
+    const Type wideT = makeStruct(
             {
                     StructMember{"hi", makeVector(15, 0), /*bit_offset*/ 84},   // 84..99
                     StructMember{"mid", makeVector(23, 0), /*bit_offset*/ 60},  // 60..83, через границу слова

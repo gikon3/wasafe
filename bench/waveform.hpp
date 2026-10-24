@@ -13,7 +13,7 @@ namespace Bench {
 struct Spec {
     std::uint32_t streams = 1024;         ///< число листовых потоков
     WaSafe::TimeStamp endTime = 200'000;  ///< длительность в тиках
-    std::uint64_t seed = 2026'08'26;      ///< детерминированность прогонов
+    std::uint64_t seed = 20'260'826;      ///< детерминированность прогонов
     std::uint32_t signalsPerScope = 32;   ///< сигналов в одном модуле
 };
 
@@ -40,7 +40,7 @@ struct MetaSpec {
     std::uint32_t arrays = 4;         ///< на сколько массивов они разложены
     std::uint32_t changeShare = 64;   ///< изменения пишет каждый N-й элемент
     WaSafe::TimeStamp endTime = 64;   ///< длительность: SignalIndex должен быть непуст
-    std::uint64_t seed = 2026'09'05;
+    std::uint64_t seed = 20'260'905;
 };
 
 /// Объявить дизайн с массивами и прогнать редкие изменения. finish() НЕ зовётся.

@@ -193,7 +193,7 @@ TEST(MultiCursor, DatabaseMixedNodes) {
     b->beginScope("top", ScopeKind::MODULE);
     const SignalId clk = b->declareVar("clk", makeScalar());
     // struct packed { logic[7:0] addr; logic valid; } — один поток на структуру.
-    Type const reqT = makeStruct(
+    const Type reqT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},

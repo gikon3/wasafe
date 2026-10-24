@@ -56,7 +56,7 @@ TEST(ByteIo, RoundTrip) {
     w.u8(0xAB);
     w.u32(0xDEAD'BEEFu);
     w.u64(0xFEED'FACE'CAFE'BABEull);
-    w.i32(-123456);
+    w.i32(-123'456);
     w.i64(-9'000'000'000ll);
     w.f64(-0.125);
     w.varint(300);
@@ -92,7 +92,7 @@ TEST(ByteIo, RoundTrip) {
     EXPECT_EQ(u8v, 0xAB);
     EXPECT_EQ(u32v, 0xDEAD'BEEFu);
     EXPECT_EQ(u64v, 0xFEED'FACE'CAFE'BABEull);
-    EXPECT_EQ(i32v, -123456);
+    EXPECT_EQ(i32v, -123'456);
     EXPECT_EQ(i64v, -9'000'000'000ll);
     EXPECT_EQ(f64v, -0.125);
     EXPECT_EQ(varv, 300u);
