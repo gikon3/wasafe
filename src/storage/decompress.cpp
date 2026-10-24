@@ -18,9 +18,8 @@ std::vector<std::byte> decompress(std::vector<std::byte> stored, BlockRef::Codec
 #if WASAFE_HAS_ZSTD
             std::vector<std::byte> out(rawSize);
             const std::size_t n = ZSTD_decompress(out.data(), out.size(), stored.data(), stored.size());
-            if (ZSTD_isError(n) || n != rawSize) {
+            if (ZSTD_isError(n) || n != rawSize)
                 throw Exception("block_source: zstd decompress failed");
-            }
             return out;
 #else
             throw Exception("block_source: zstd codec not built");

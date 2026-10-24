@@ -109,7 +109,7 @@ Database::Database(std::shared_ptr<const Hierarchy> hierarchy, std::unique_ptr<S
 }
 
 void Database::throwMovedFrom() {
-    throw Exception{"database: обращение к перемещённой Database"};
+    throw Exception{"database: use of a moved-from Database"};
 }
 
 Database Database::duplicate() const {

@@ -184,7 +184,7 @@ private:
     void evict() {
         // никогда не вытесняем единственный (только что добавленный) блок
         while (bytes_ > limit_ && lru_.size() > 1) {
-            Entry const& back = lru_.back();
+            const Entry& back = lru_.back();
             bytes_ -= back.block.byteSize();
             map_.erase(back.key);
             lru_.pop_back();
@@ -229,9 +229,8 @@ ValueView LazyStorage::valueAt(SignalId id, TimeStamp t) const {
         return {};  // t раньше начала всех данных
 
     const DecodedBlock& blk = cache_->get(id, loc->blocks[bi], *source_);
-    if (const std::size_t idx = changeAtOrBefore(blk.times(), t); idx != kNone) {
+    if (const std::size_t idx = changeAtOrBefore(blk.times(), t); idx != kNone)
         return blk.valueAtIndex(idx);
-    }
     // t < первого изменения этого блока — значение перенесено из предыдущего блока
     if (bi == 0)
         return {};

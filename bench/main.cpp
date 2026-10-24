@@ -205,10 +205,10 @@ void benchCursors(Bench::Report& report, const Options& opts, const std::filesys
 
         report.add(std::format("cursor_batch_{}", n))
                 .num("ms", batchMs)
-                .num("checksum", static_cast<double>(batchSeen % 100000), 0);
+                .num("checksum", static_cast<double>(batchSeen % 100'000), 0);
         report.add(std::format("cursor_serial_{}", n))
                 .num("ms", serialMs)
-                .num("checksum", static_cast<double>(serialSeen % 100000), 0)
+                .num("checksum", static_cast<double>(serialSeen % 100'000), 0)
                 .num("vs_batch", serialMs / batchMs, 2);
     }
 }
@@ -255,10 +255,10 @@ void benchCursorsInMemory(Bench::Report& report, const Options& opts) {
 
         report.add(std::format("cursor_mem_batch_{}", n))
                 .num("ms", batchMs)
-                .num("checksum", static_cast<double>(batchSeen % 100000), 0);
+                .num("checksum", static_cast<double>(batchSeen % 100'000), 0);
         report.add(std::format("cursor_mem_serial_{}", n))
                 .num("ms", serialMs)
-                .num("checksum", static_cast<double>(serialSeen % 100000), 0)
+                .num("checksum", static_cast<double>(serialSeen % 100'000), 0)
                 .num("vs_batch", serialMs / batchMs, 2);
     }
 }
@@ -293,7 +293,7 @@ void benchPrefetch(Bench::Report& report, const Options& opts, const std::filesy
             .num("prefetch_ms", prefetchMs)
             .num("cursor_ms", cursorMs)
             .num("cached_MiB", static_cast<double>(db.storage().cachedBytes()) / 1048576.0, 1)
-            .num("checksum", static_cast<double>(seen % 100000), 0);
+            .num("checksum", static_cast<double>(seen % 100'000), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ void benchValueAt(Bench::Report& report, const Options& opts, const std::filesys
                 .num("us/query", ms * 1000.0 / static_cast<double>(kQueries), 2)
                 .num("ms", ms)
                 .num("cached_MiB", static_cast<double>(db.storage().cachedBytes()) / 1048576.0, 1)
-                .num("checksum", static_cast<double>(seen % 100000), 0);
+                .num("checksum", static_cast<double>(seen % 100'000), 0);
     }
 
     // Ведение курсора: время растёт монотонно, сигналы фиксированы — попадания
@@ -350,7 +350,7 @@ void benchValueAt(Bench::Report& report, const Options& opts, const std::filesys
             .num("us/query", ms * 1000.0 / static_cast<double>(kSteps * visible), 3)
             .num("ms", ms)
             .num("queries", static_cast<double>(kSteps * visible), 0)
-            .num("checksum", static_cast<double>(seen % 100000), 0);
+            .num("checksum", static_cast<double>(seen % 100'000), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +362,7 @@ void benchBlockSize(Bench::Report& report, const Options& opts) {
 
     const Bench::Spec spec = specOf(opts);
     for (const std::size_t blockChanges :
-            {std::size_t{256}, std::size_t{1024}, std::size_t{4096}, std::size_t{16384}}) {
+            {std::size_t{256}, std::size_t{1024}, std::size_t{4096}, std::size_t{16'384}}) {
         const TempStore tmp{std::format("wasafe_bench_bs{}.wsfstore", blockChanges)};
 
         const Bench::Timer ingestTimer;
@@ -391,7 +391,7 @@ void benchBlockSize(Bench::Report& report, const Options& opts) {
                 .num("MiB", bytes / 1048576.0, 1)
                 .num("B/chg", bytes / static_cast<double>(stats.changes), 2)
                 .num("us/query", queryMs * 1000.0 / static_cast<double>(kQueries), 2)
-                .num("checksum", static_cast<double>(seen % 100000), 0);
+                .num("checksum", static_cast<double>(seen % 100'000), 0);
     }
 }
 
@@ -414,7 +414,7 @@ void benchCrc32(Bench::Report& report, const Options& opts) {
 
     const auto budget = static_cast<double>(512u << 20) * opts.scale;  // байт на случай
 
-    for (const std::size_t size : {std::size_t{4096}, std::size_t{65536}, std::size_t{1u << 20}}) {
+    for (const std::size_t size : {std::size_t{4096}, std::size_t{65'536}, std::size_t{1u << 20}}) {
         const std::span<const std::byte> data{buf.data(), size};
         const auto iters = std::max<std::size_t>(1, static_cast<std::size_t>(budget) / size);
 
@@ -431,7 +431,7 @@ void benchCrc32(Bench::Report& report, const Options& opts) {
         report.add(std::format("crc32_{}KiB", size / 1024))
                 .num("GB/s", bytes / (ms / 1000.0) / 1e9, 2)
                 .num("ms", ms)
-                .num("checksum", static_cast<double>(crc % 100000), 0);
+                .num("checksum", static_cast<double>(crc % 100'000), 0);
     }
 }
 
@@ -471,7 +471,7 @@ void benchVerifyBlocks(Bench::Report& report, const Options& opts, const std::fi
             .num("plain_ms", plainMs)
             .num("verify_ms", verifyMs)
             .num("overhead", verifyMs / plainMs, 2)
-            .text("checksum", plainSeen == verifySeen ? "ok" : "РАЗОШЁЛСЯ");
+            .text("checksum", plainSeen == verifySeen ? "ok" : "MISMATCH");
 }
 
 // ---------------------------------------------------------------------------
@@ -607,8 +607,8 @@ int run(std::span<char* const> args) {
 
     const Bench::Spec spec = specOf(opts);
     if (!opts.csv) {
-        std::print("дамп: {} потоков, {} тиков, ~{} изменений\n\n", spec.streams,
-                static_cast<std::int64_t>(spec.endTime), Bench::estimateChanges(spec));
+        std::print("dump: {} streams, {} ticks, ~{} changes\n\n", spec.streams, static_cast<std::int64_t>(spec.endTime),
+                Bench::estimateChanges(spec));
     }
 
     Bench::Report report;
@@ -645,13 +645,13 @@ int main(int argc, char** argv) {
         return run(std::span{argv, static_cast<std::size_t>(argc)});
     }
     catch (const std::exception& e) {
-        std::fputs("ошибка: ", stderr);
-        std::fputs(e.what(), stderr);
-        std::fputs("\n", stderr);
+        std::ignore = std::fputs("error: ", stderr);
+        std::ignore = std::fputs(e.what(), stderr);
+        std::ignore = std::fputs("\n", stderr);
         return 1;
     }
     catch (...) {
-        std::fputs("ошибка: неизвестное исключение\n", stderr);
+        std::ignore = std::fputs("error: unknown exception\n", stderr);
         return 1;
     }
 }

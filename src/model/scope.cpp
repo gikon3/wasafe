@@ -86,9 +86,8 @@ Scope Scope::scope(std::size_t index) const {
 Scope Scope::scope(std::string_view name) const {
     require();
     const auto& n = nodeOf(*db_, id_);
-    if (const auto it = n.scopeIndex.find(name); it != n.scopeIndex.end()) {
+    if (const auto it = n.scopeIndex.find(name); it != n.scopeIndex.end())
         return db_->scopeHandle(it->second);
-    }
     return {};
 }
 

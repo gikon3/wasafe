@@ -113,7 +113,7 @@ void emitOne(Builder& sink, const StreamInfo& info, Rng& rng, std::array<LogicVe
         std::string& strScratch) {
     switch (info.kind) {
         case ValueKind::REAL:
-            sink.valueChange(info.id, ValueView{static_cast<double>(rng.next() % 100000) / 16.0});
+            sink.valueChange(info.id, ValueView{static_cast<double>(rng.next() % 100'000) / 16.0});
             return;
         case ValueKind::STRING:
             strScratch = std::format("st{}", rng.next() % 1000);

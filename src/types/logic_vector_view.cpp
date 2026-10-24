@@ -148,7 +148,7 @@ template <std::uint32_t kBitsPerDigit>
 std::string groupedString(const LogicVectorView& v) {
     static_assert(kBitsPerDigit > 0);
     static_assert((std::size_t{1} << kBitsPerDigit) <= kDigits.size(),
-            "kDigits не адресует столько бит на разряд — расширьте таблицу символов");
+            "kDigits cannot address this many bits per digit; extend the digit table");
 
     const std::uint32_t width = v.width();
     const std::uint32_t digits = (width + kBitsPerDigit - 1) / kBitsPerDigit;

@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -227,12 +228,12 @@ TEST(Indexing, SectionRejectsTruncated) {
     for (const std::size_t cut : {std::size_t{0}, buf.size() / 2, buf.size() - 1}) {
         std::vector<std::byte> truncated{buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(cut)};
         ByteReader r{truncated};
-        EXPECT_THROW((void)SignalIndex::decode(r), Exception) << "cut = " << cut;
+        EXPECT_THROW(std::ignore = SignalIndex::decode(r), Exception) << "cut = " << cut;
     }
 }
 
 TEST(Indexing, EndToEndLazyRead) {
-    TempPath const tmp{"wasafe_store_e2e.wsfstore"};
+    const TempPath tmp{"wasafe_store_e2e.wsfstore"};
 
     // Мелкие блоки (2 изменения) — заставит создать несколько блоков и
     // проверить обход границ при ленивом чтении.
@@ -311,12 +312,12 @@ TEST(Indexing, EndToEndLazyRead) {
 // IndexingBuilder: packed-член на ленивом storage — курсор и фронты члена идут
 // по блокам потока-предка, включая переход через границу блока.
 TEST(Indexing, PackedMemberChangesLazy) {
-    TempPath const tmp{"wasafe_store_packed.wsfstore"};
+    const TempPath tmp{"wasafe_store_packed.wsfstore"};
 
     // По 2 изменения на блок: 3 изменения потока req лягут в два блока.
     auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
     b->beginScope("top", ScopeKind::MODULE);
-    Type const reqT = makeStruct(
+    const Type reqT = makeStruct(
             {
                     StructMember{"addr", makeVector(7, 0), /*bit_offset*/ 1},
                     StructMember{"valid", makeScalar(), /*bit_offset*/ 0},
@@ -368,7 +369,7 @@ TEST(Indexing, PackedMemberChangesLazy) {
 
 // IndexingBuilder: запись идёт ПО ХОДУ разбора, а не в finish()
 TEST(Indexing, StreamsToDiskBeforeFinish) {
-    TempPath const tmp{"wasafe_store_streaming.wsfstore"};
+    const TempPath tmp{"wasafe_store_streaming.wsfstore"};
 
     auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 8});
     b->beginScope("top", ScopeKind::MODULE);
@@ -378,7 +379,7 @@ TEST(Indexing, StreamsToDiskBeforeFinish) {
 
     // Объём заведомо больше буфера потока вывода, поэтому байты обязаны дойти
     // до файла ещё до finish(), если запись действительно потоковая.
-    constexpr int kN = 20000;
+    constexpr int kN = 20'000;
     const LogicScratch a{64, "0000000000000000000000000000000000000000000000000000000000001010"};
     const LogicScratch c{64, "0000000000000000000000000000000000000000000000000000000001011100"};
     for (TimeStamp i = 0; i < kN; ++i) {
@@ -405,7 +406,7 @@ TEST(Indexing, StreamsToDiskBeforeFinish) {
 
 // IndexingBuilder: потолок буфера дробит блоки, не ломая чтение
 TEST(Indexing, BufferBudgetSplitsBlocks) {
-    TempPath const tmp{"wasafe_store_budget.wsfstore"};
+    const TempPath tmp{"wasafe_store_budget.wsfstore"};
 
     // blockChanges заведомо недостижим — блоки могут появиться ТОЛЬКО из-за
     // досрочного сброса по нехватке памяти.
@@ -461,11 +462,11 @@ TEST(Indexing, ZstdCompressLargeBlock) {
     if (!kHasZstd)
         GTEST_SKIP() << "библиотека собрана без zstd (WASAFE_WITH_ZSTD=OFF)";
 
-    TempPath const tmp{"wasafe_store_zstd.wsfstore"};
+    const TempPath tmp{"wasafe_store_zstd.wsfstore"};
 
     // Один крупный блок из хорошо сжимаемых данных: zstd должен реально сжать,
     // и чтение пойдёт через ZSTD_decompress (codec == Zstd в индексе).
-    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 10000});
+    auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 10'000});
     b->beginScope("top", ScopeKind::MODULE);
     const SignalId w = b->declareVar("bus", makeVector(63, 0));
     b->endScope();
@@ -501,7 +502,7 @@ TEST(Indexing, ZstdCompressLargeBlock) {
 // Файл самодостаточен: Database уничтожена, парсера нет, исходного дампа нет —
 // а дизайн и значения читаются заново.
 TEST(Indexing, ReopenAfterClose) {
-    TempPath const tmp{"wasafe_reopen.wsfstore"};
+    const TempPath tmp{"wasafe_reopen.wsfstore"};
 
     {
         auto b = makeIndexingBuilder(tmp.path, {.blockChanges = 2});
@@ -563,60 +564,60 @@ TEST(Indexing, ReopenAfterClose) {
 
 // Открытие отвергает всё, что не является дописанным store, — внятной ошибкой.
 TEST(Indexing, OpenStoreRejectsBadFiles) {
-    EXPECT_THROW((void)openStore("/no/such/wasafe/store.wsfstore"), Exception);
+    EXPECT_THROW(std::ignore = openStore("/no/such/wasafe/store.wsfstore"), Exception);
 
     // Слишком короткий файл.
-    TempPath const tiny{"wasafe_tiny.wsfstore"};
+    const TempPath tiny{"wasafe_tiny.wsfstore"};
     writeWhole(tiny.path, std::vector<std::byte>(4));
-    EXPECT_THROW((void)openStore(tiny.path), Exception);
+    EXPECT_THROW(std::ignore = openStore(tiny.path), Exception);
 
     // Длина подходящая, но это не наш файл: не совпадает магия заголовка.
-    TempPath const junk{"wasafe_junk.wsfstore"};
+    const TempPath junk{"wasafe_junk.wsfstore"};
     writeWhole(junk.path, std::vector<std::byte>(128, std::byte{0x5A}));
-    EXPECT_THROW((void)openStore(junk.path), Exception);
+    EXPECT_THROW(std::ignore = openStore(junk.path), Exception);
 
-    TempPath const full{"wasafe_full.wsfstore"};
+    const TempPath full{"wasafe_full.wsfstore"};
     writeSmallStore(full.path);
     const auto image = readWhole(full.path);
     ASSERT_GT(image.size(), 32u);
-    EXPECT_NO_THROW((void)openStore(full.path));  // эталон открывается
+    EXPECT_NO_THROW(std::ignore = openStore(full.path));  // эталон открывается
 
     // Оборванная запись: футера нет.
-    TempPath const cut{"wasafe_cut.wsfstore"};
+    const TempPath cut{"wasafe_cut.wsfstore"};
     writeWhole(cut.path, std::span{image}.first(image.size() - 1));
-    EXPECT_THROW((void)openStore(cut.path), Exception);
+    EXPECT_THROW(std::ignore = openStore(cut.path), Exception);
 
     // Футер на месте, но метаданные обещаны за границей файла.
-    TempPath const bent{"wasafe_bent.wsfstore"};
+    const TempPath bent{"wasafe_bent.wsfstore"};
     std::vector<std::byte> bentImage = image;
     for (std::size_t i = 0; i < 8; ++i)
         bentImage[bentImage.size() - StoreLayout::kFooterSize + i] = std::byte{0xFF};  // metaOffset = огромный
     writeWhole(bent.path, bentImage);
-    EXPECT_THROW((void)openStore(bent.path), Exception);
+    EXPECT_THROW(std::ignore = openStore(bent.path), Exception);
 
     // Store прежней раскладки версии: там она была одним числом, а не парой
     // major.minor, поэтому единица читается как major 0 и отвергается.
-    TempPath const old{"wasafe_old.wsfstore"};
+    const TempPath old{"wasafe_old.wsfstore"};
     std::vector<std::byte> oldImage = image;
     oldImage[4] = std::byte{1};
     oldImage[5] = std::byte{0};
     oldImage[6] = std::byte{0};
     oldImage[7] = std::byte{0};
     writeWhole(old.path, oldImage);
-    EXPECT_THAT(messageOf([&] { (void)openStore(old.path); }), testing::HasSubstr("unsupported version 0.1"));
+    EXPECT_THAT(messageOf([&] { std::ignore = openStore(old.path); }), testing::HasSubstr("unsupported version 0.1"));
 }
 
 // Тихое повреждение метаданных — не то же самое, что оборванная запись, и
 // сообщение обязано их различать: футер на месте, длины сходятся, испорчен байт
 // внутри секции.
 TEST(Indexing, CorruptMetadataIsDetected) {
-    TempPath const src{"wasafe_rot_meta.wsfstore"};
+    const TempPath src{"wasafe_rot_meta.wsfstore"};
     writeSmallStore(src.path);
 
     StoreImage img = readStoreImage(src.path);
     ASSERT_FALSE(img.hierarchy.empty());
 
-    TempPath const rotten{"wasafe_rot_meta_bad.wsfstore"};
+    const TempPath rotten{"wasafe_rot_meta_bad.wsfstore"};
     // writeStoreWith считает сумму по факту, поэтому портить надо уже готовый
     // файл — один бит в теле секции иерархии, футер и длины при этом целы.
     writeStoreWith(rotten.path, img, StoreLayout::kHierarchyMagic, StoreLayout::kHierarchyVersion, img.hierarchy);
@@ -625,13 +626,14 @@ TEST(Indexing, CorruptMetadataIsDetected) {
     image[body + img.hierarchy.size() / 2] ^= std::byte{0x20};
     writeWhole(rotten.path, image);
 
-    EXPECT_THAT(messageOf([&] { (void)openStore(rotten.path); }), testing::HasSubstr("metadata checksum mismatch"));
+    EXPECT_THAT(messageOf([&] { std::ignore = openStore(rotten.path); }),
+            testing::HasSubstr("metadata checksum mismatch"));
 }
 
 // Хвост, дописанный секции в минорной версии, читается вперёд-совместимо:
 // известное начало разбирается, лишнее пропускается по длине секции.
 TEST(Indexing, FutureMinorSectionTailIsSkipped) {
-    TempPath const src{"wasafe_future_src.wsfstore"};
+    const TempPath src{"wasafe_future_src.wsfstore"};
     writeSmallStore(src.path);
     const StoreImage img = readStoreImage(src.path);
 
@@ -639,7 +641,7 @@ TEST(Indexing, FutureMinorSectionTailIsSkipped) {
     ByteWriter hw{hierarchy};
     hw.str("поле, о котором эта версия ничего не знает");
 
-    TempPath const future{"wasafe_future.wsfstore"};
+    const TempPath future{"wasafe_future.wsfstore"};
     const auto futureMinor = static_cast<std::uint16_t>(StoreLayout::minorOf(StoreLayout::kHierarchyVersion) + 1);
     writeStoreWith(future.path, img, StoreLayout::kHierarchyMagic,
             StoreLayout::makeVersion(StoreLayout::majorOf(StoreLayout::kHierarchyVersion), futureMinor), hierarchy);
@@ -654,7 +656,7 @@ TEST(Indexing, FutureMinorSectionTailIsSkipped) {
 // — ловит порчу значений ДО разбора, иначе испорченные байты дают либо случайную
 // ошибку формата, либо тихий мусор вместо значения.
 TEST(Indexing, VerifiedBlockChecksumCatchesRot) {
-    TempPath const tmp{"wasafe_rot_block.wsfstore"};
+    const TempPath tmp{"wasafe_rot_block.wsfstore"};
     writeSmallStore(tmp.path);
 
     // Нужен НЕсжатый блок: у сжатого порча почти всегда всплыла бы ошибкой zstd,
@@ -677,22 +679,23 @@ TEST(Indexing, VerifiedBlockChecksumCatchesRot) {
 
     // Метаданные целы, поэтому открывается файл в обоих режимах одинаково.
     const Database plain = openStore(tmp.path);
-    EXPECT_NO_THROW((void)plain.find("top.data")->valueAt(10)) << "без проверки чтение не спотыкается";
+    EXPECT_NO_THROW(std::ignore = plain.find("top.data")->valueAt(10)) << "без проверки чтение не спотыкается";
 
     const Database checked = openStore(tmp.path, {}, /*verifyBlocks*/ true);
-    EXPECT_THAT(messageOf([&] { (void)checked.find("top.data")->valueAt(10); }),
+    EXPECT_THAT(messageOf([&] { std::ignore = checked.find("top.data")->valueAt(10); }),
             testing::HasSubstr("checksum mismatch"));
 
     // Дубликат БД читает те же байты в другом потоке — проверка обязана уехать
     // вместе с ним, иначе она отключалась бы молча.
     const Database copy = checked.duplicate();
-    EXPECT_THAT(messageOf([&] { (void)copy.find("top.data")->valueAt(10); }), testing::HasSubstr("checksum mismatch"));
+    EXPECT_THAT(messageOf([&] { std::ignore = copy.find("top.data")->valueAt(10); }),
+            testing::HasSubstr("checksum mismatch"));
 }
 
 // Число изменений в блоке пишется в индекс: оно даёт оценку плотности без
 // распаковки и обязано пережить переоткрытие.
 TEST(Indexing, BlockCountSurvivesReopen) {
-    TempPath const tmp{"wasafe_block_count.wsfstore"};
+    const TempPath tmp{"wasafe_block_count.wsfstore"};
 
     constexpr std::uint32_t kChanges = 5;
     {
@@ -735,21 +738,22 @@ TEST(Indexing, BlockCountSurvivesReopen) {
 // А вот чужой major секции — отказ, и по сообщению видно, какая секция и какая
 // версия, а не «truncated» в случайном месте разбора.
 TEST(Indexing, ForeignSectionIsRejected) {
-    TempPath const src{"wasafe_section_src.wsfstore"};
+    const TempPath src{"wasafe_section_src.wsfstore"};
     writeSmallStore(src.path);
     const StoreImage img = readStoreImage(src.path);
 
-    TempPath const newer{"wasafe_section_major.wsfstore"};
+    const TempPath newer{"wasafe_section_major.wsfstore"};
     const auto nextMajor = static_cast<std::uint16_t>(StoreLayout::majorOf(StoreLayout::kHierarchyVersion) + 1);
     writeStoreWith(newer.path, img, StoreLayout::kHierarchyMagic, StoreLayout::makeVersion(nextMajor, 0),
             img.hierarchy);
-    EXPECT_THAT(messageOf([&] { (void)openStore(newer.path); }),
+    EXPECT_THAT(messageOf([&] { std::ignore = openStore(newer.path); }),
             testing::HasSubstr("unsupported hierarchy section version 2.0"));
 
     // Секции перепутаны местами — ловится магией, а не разбором тела.
-    TempPath const swapped{"wasafe_section_magic.wsfstore"};
+    const TempPath swapped{"wasafe_section_magic.wsfstore"};
     writeStoreWith(swapped.path, img, StoreLayout::kIndexMagic, StoreLayout::kIndexVersion, img.hierarchy);
-    EXPECT_THAT(messageOf([&] { (void)openStore(swapped.path); }), testing::HasSubstr("bad hierarchy section magic"));
+    EXPECT_THAT(messageOf([&] { std::ignore = openStore(swapped.path); }),
+            testing::HasSubstr("bad hierarchy section magic"));
 }
 
 // ---------------------------------------------------------------------------
@@ -774,8 +778,8 @@ TEST(Indexing, IndexByteSizeGrowsWithBlocks) {
         std::ignore = b->takeDatabase();
     };
 
-    TempPath const few{"wasafe_idx_bytes_few.wsfstore"};
-    TempPath const many{"wasafe_idx_bytes_many.wsfstore"};
+    const TempPath few{"wasafe_idx_bytes_few.wsfstore"};
+    const TempPath many{"wasafe_idx_bytes_many.wsfstore"};
     write(few.path, 2);
     write(many.path, 64);
 
@@ -798,7 +802,7 @@ TEST(Indexing, MetadataCostsMoreInMemoryThanOnDisk) {
     // decodeHierarchy теми же addSignal/addMember. Поэтому в ОЗУ иерархия стоит
     // кратно дороже, чем занимает на диске, и открытие большого дизайна упирается
     // именно в это. Тест сторожит сам факт разрыва, а не его величину.
-    TempPath const tmp{"wasafe_meta_cost.wsfstore"};
+    const TempPath tmp{"wasafe_meta_cost.wsfstore"};
     {
         auto b = makeIndexingBuilder(tmp.path);
         b->beginScope("top", ScopeKind::MODULE);

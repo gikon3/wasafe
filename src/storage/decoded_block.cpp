@@ -149,7 +149,7 @@ std::uint32_t DecodedBlock::width() const noexcept {
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr std::uint32_t kBlockMagic = 0x33424457u;  // 'WDB3'
+constexpr std::uint32_t kBlockMagic = 0x3342'4457u;  // 'WDB3'
 
 /// Флаги блока (байт flags заголовка).
 constexpr std::uint8_t kFlagHasBval = 1u << 0;  ///< bval-план присутствует (блок четырёхзначный)

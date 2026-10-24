@@ -78,7 +78,7 @@ TEST(Ingest, IntoMemoryBuilder) {
 
 // ingest: приёмник — нормализованный store на диске (ленивое чтение)
 TEST(Ingest, IntoIndexingBuilder) {
-    TempStore const tmp{"wasafe_ingest.wsfstore"};
+    const TempStore tmp{"wasafe_ingest.wsfstore"};
 
     Fake::FakeReader reader;
     auto sink = makeIndexingBuilder(tmp.path, {.blockChanges = 2});

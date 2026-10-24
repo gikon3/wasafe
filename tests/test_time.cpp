@@ -6,12 +6,12 @@ using namespace WaSafe;
 
 // TimeRange: пересечение и вложенность
 TEST(Time, RangeIntersectAndHull) {
-    TimeRange const a{100, 200};
+    const TimeRange a{100, 200};
     EXPECT_EQ(a.size(), 100u);
     EXPECT_TRUE(a.contains(150));
     EXPECT_FALSE(a.contains(200));  // полуоткрытый интервал
 
-    TimeRange const b{150, 300};
+    const TimeRange b{150, 300};
     EXPECT_TRUE(a.overlaps(b));
     EXPECT_EQ(a.intersect(b), (TimeRange{150, 200}));
     EXPECT_EQ(a.hull(b), (TimeRange{100, 300}));

@@ -6,6 +6,7 @@
 namespace WaSafe {
 
 namespace {
+
 struct UnitText {
     std::int32_t exp;
     std::string_view text;
@@ -18,21 +19,20 @@ constexpr std::array kUnits{
         UnitText{-12, "ps"},
         UnitText{-15, "fs"},
 };
+
 }  // namespace
 
 std::string formatTimeScale(TimeScale ts) {
     for (const auto& u : kUnits) {
-        if (u.exp == ts.exponent) {
+        if (u.exp == ts.exponent)
             return std::to_string(ts.scale) + " " + std::string(u.text);
-        }
     }
     // TODO(impl): нормализовать произвольный exponent к ближайшей приставке.
     return std::to_string(ts.scale) + "e" + std::to_string(ts.exponent) + " s";
 }
 
-std::optional<TimeScale> parseTimeScale(std::string_view text) {
+std::optional<TimeScale> parseTimeScale([[maybe_unused]] std::string_view text) {
     // TODO(impl): полноценный разбор "10 ns" / "1ps" с пробелами и регистром.
-    (void)text;
     return std::nullopt;
 }
 

@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include "fake_reader.hpp"
@@ -107,9 +108,9 @@ TEST(ValidatingBuilder, RejectsHeaderCallsAfterHeaderDone) {
     Guarded b;
     openHeader(*b);
 
-    EXPECT_THROW((void)b->declareVar("late", makeScalar()), Exception);
+    EXPECT_THROW(std::ignore = b->declareVar("late", makeScalar()), Exception);
     EXPECT_THROW(b->setTimeScale({}), Exception);
-    EXPECT_THROW((void)b->beginScope("late", ScopeKind::MODULE), Exception);
+    EXPECT_THROW(std::ignore = b->beginScope("late", ScopeKind::MODULE), Exception);
     EXPECT_THROW(b->endScope(), Exception);
     EXPECT_THROW(b->headerDone(), Exception);
 }
@@ -159,10 +160,10 @@ TEST(ValidatingBuilder, RejectsTakeDatabaseOutOfOrder) {
     b->setTime(0);
     b->valueChange(h.clk, bits(1, "0"));
 
-    EXPECT_THROW((void)b->takeDatabase(), Exception);
+    EXPECT_THROW(std::ignore = b->takeDatabase(), Exception);
     b->finish();
-    EXPECT_NO_THROW((void)b->takeDatabase());
-    EXPECT_THROW((void)b->takeDatabase(), Exception);
+    EXPECT_NO_THROW(std::ignore = b->takeDatabase());
+    EXPECT_THROW(std::ignore = b->takeDatabase(), Exception);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,11 +230,11 @@ TEST(ValidatingBuilder, RejectsWidthMismatch) {
 TEST(ValidatingBuilder, RejectsUnknownAlias) {
     Guarded b;
     b->beginScope("top", ScopeKind::MODULE);
-    EXPECT_THROW((void)b->declareVar("ghost", makeScalar(), SignalId{9999}), Exception);
-    EXPECT_THROW((void)b->declareVar("ghost", makeScalar(), SignalId{}), Exception);
+    EXPECT_THROW(std::ignore = b->declareVar("ghost", makeScalar(), SignalId{9999}), Exception);
+    EXPECT_THROW(std::ignore = b->declareVar("ghost", makeScalar(), SignalId{}), Exception);
 
     const SignalId clk = b->declareVar("clk", makeScalar());
-    EXPECT_NO_THROW((void)b->declareVar("clk_mirror", makeScalar(), clk));
+    EXPECT_NO_THROW(std::ignore = b->declareVar("clk_mirror", makeScalar(), clk));
 }
 
 TEST(ValidatingBuilder, RejectsUnknownLeafBinding) {
@@ -244,7 +245,7 @@ TEST(ValidatingBuilder, RejectsUnknownLeafBinding) {
     // тот же алиас, что и alias, поэтому и спрос тот же.
     const Type mem = makeArray(makeVector(7, 0), 0, 1);
     std::vector<SignalId> leaves{SignalId{9999}, SignalId{}};
-    EXPECT_THROW((void)b->declareVar("mem", mem, std::nullopt, leaves), Exception);
+    EXPECT_THROW(std::ignore = b->declareVar("mem", mem, std::nullopt, leaves), Exception);
 }
 
 TEST(ValidatingBuilder, TracksStreamsAllocatedByTheCore) {

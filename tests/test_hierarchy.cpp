@@ -205,32 +205,32 @@ TEST(Hierarchy, InvalidHandlesThrow) {
     const ScopeId top = h.addScope(h.root(), "top", ScopeKind::MODULE);
     const NodeId sig = h.addSignal(top, "sig", makeScalar(), SignalId{0});
 
-    const ScopeId badScope{12345};  // вне диапазона
-    const ScopeId nullScope{};      // невалидный сентинел
+    const ScopeId badScope{12'345};  // вне диапазона
+    const ScopeId nullScope{};       // невалидный сентинел
     const NodeId badNode{999};
 
     // доступ
-    EXPECT_THROW((void)h.scopeNode(badScope), Exception);
-    EXPECT_THROW((void)h.scopeNode(nullScope), Exception);
-    EXPECT_THROW((void)h.signalNode(badNode), Exception);
+    EXPECT_THROW(std::ignore = h.scopeNode(badScope), Exception);
+    EXPECT_THROW(std::ignore = h.scopeNode(nullScope), Exception);
+    EXPECT_THROW(std::ignore = h.signalNode(badNode), Exception);
     // pathOf — раньше молча возвращал ""
-    EXPECT_THROW((void)h.pathOf(badScope), Exception);
-    EXPECT_THROW((void)h.pathOf(nullScope), Exception);
-    EXPECT_THROW((void)h.pathOf(badNode), Exception);
+    EXPECT_THROW(std::ignore = h.pathOf(badScope), Exception);
+    EXPECT_THROW(std::ignore = h.pathOf(nullScope), Exception);
+    EXPECT_THROW(std::ignore = h.pathOf(badNode), Exception);
     // относительный поиск — стартовый хэндл проверяется так же
-    EXPECT_THROW((void)h.findSignal(badNode, "x"), Exception);
-    EXPECT_THROW((void)h.findSignal(badScope, "x"), Exception);
-    EXPECT_THROW((void)h.findScope(badScope, "x"), Exception);
-    EXPECT_THROW((void)h.findScope(nullScope, "x"), Exception);
+    EXPECT_THROW(std::ignore = h.findSignal(badNode, "x"), Exception);
+    EXPECT_THROW(std::ignore = h.findSignal(badScope, "x"), Exception);
+    EXPECT_THROW(std::ignore = h.findScope(badScope, "x"), Exception);
+    EXPECT_THROW(std::ignore = h.findScope(nullScope, "x"), Exception);
     // построение — раньше воспринимало родителя на веру (UB)
-    EXPECT_THROW((void)h.addScope(badScope, "x", ScopeKind::MODULE), Exception);
-    EXPECT_THROW((void)h.addSignal(badScope, "x", makeScalar(), SignalId{}), Exception);
-    EXPECT_THROW((void)h.addMember(badNode, "x", makeScalar(), SignalId{}), Exception);
-    EXPECT_THROW((void)h.addElement(badNode, 0, makeScalar(), SignalId{}), Exception);
+    EXPECT_THROW(std::ignore = h.addScope(badScope, "x", ScopeKind::MODULE), Exception);
+    EXPECT_THROW(std::ignore = h.addSignal(badScope, "x", makeScalar(), SignalId{}), Exception);
+    EXPECT_THROW(std::ignore = h.addMember(badNode, "x", makeScalar(), SignalId{}), Exception);
+    EXPECT_THROW(std::ignore = h.addElement(badNode, 0, makeScalar(), SignalId{}), Exception);
 
     // валидные хэндлы по-прежнему работают
-    EXPECT_NO_THROW((void)h.scopeNode(top));
-    EXPECT_NO_THROW((void)h.signalNode(sig));
+    EXPECT_NO_THROW(std::ignore = h.scopeNode(top));
+    EXPECT_NO_THROW(std::ignore = h.signalNode(sig));
     EXPECT_EQ(h.pathOf(sig), "top.sig");
 }
 
@@ -336,36 +336,36 @@ TEST(Hierarchy, InvalidSignalHandleThrows) {
 
     for (const Signal& bad : {fromDefault, fromLookup}) {
         // Проверяющие примитивы обязаны работать: на них и держится проверка.
-        EXPECT_NO_THROW((void)bad.valid());
-        EXPECT_NO_THROW((void)bad.node());
+        EXPECT_NO_THROW(std::ignore = bad.valid());
+        EXPECT_NO_THROW(std::ignore = bad.node());
         EXPECT_FALSE(static_cast<bool>(bad));
 
-        EXPECT_THROW((void)bad.name(), Exception);
-        EXPECT_THROW((void)bad.fullPath(), Exception);
-        EXPECT_THROW((void)bad.type(), Exception);
-        EXPECT_THROW((void)bad.kind(), Exception);
-        EXPECT_THROW((void)bad.width(), Exception);
-        EXPECT_THROW((void)bad.isLeaf(), Exception);
-        EXPECT_THROW((void)bad.isComposite(), Exception);
-        EXPECT_THROW((void)bad.hasOwnStream(), Exception);
-        EXPECT_THROW((void)bad.streamId(), Exception);
-        EXPECT_THROW((void)bad.childCount(), Exception);
-        EXPECT_THROW((void)bad.child(0), Exception);
-        EXPECT_THROW((void)bad.child("x"), Exception);
-        EXPECT_THROW((void)bad[0], Exception);
-        EXPECT_THROW((void)bad.find("x"), Exception);
-        EXPECT_THROW((void)bad.parent(), Exception);
-        EXPECT_THROW((void)bad.children(), Exception);
-        EXPECT_THROW((void)bad.database(), Exception);
-        EXPECT_THROW((void)bad.valueAt(0), Exception);
-        EXPECT_THROW((void)bad.changes({0, 10}), Exception);
-        EXPECT_THROW((void)bad.nextChange(0), Exception);
-        EXPECT_THROW((void)bad.prevChange(10), Exception);
+        EXPECT_THROW(std::ignore = bad.name(), Exception);
+        EXPECT_THROW(std::ignore = bad.fullPath(), Exception);
+        EXPECT_THROW(std::ignore = bad.type(), Exception);
+        EXPECT_THROW(std::ignore = bad.kind(), Exception);
+        EXPECT_THROW(std::ignore = bad.width(), Exception);
+        EXPECT_THROW(std::ignore = bad.isLeaf(), Exception);
+        EXPECT_THROW(std::ignore = bad.isComposite(), Exception);
+        EXPECT_THROW(std::ignore = bad.hasOwnStream(), Exception);
+        EXPECT_THROW(std::ignore = bad.streamId(), Exception);
+        EXPECT_THROW(std::ignore = bad.childCount(), Exception);
+        EXPECT_THROW(std::ignore = bad.child(0), Exception);
+        EXPECT_THROW(std::ignore = bad.child("x"), Exception);
+        EXPECT_THROW(std::ignore = bad[0], Exception);
+        EXPECT_THROW(std::ignore = bad.find("x"), Exception);
+        EXPECT_THROW(std::ignore = bad.parent(), Exception);
+        EXPECT_THROW(std::ignore = bad.children(), Exception);
+        EXPECT_THROW(std::ignore = bad.database(), Exception);
+        EXPECT_THROW(std::ignore = bad.valueAt(0), Exception);
+        EXPECT_THROW(std::ignore = bad.changes({0, 10}), Exception);
+        EXPECT_THROW(std::ignore = bad.nextChange(0), Exception);
+        EXPECT_THROW(std::ignore = bad.prevChange(10), Exception);
     }
 
     // Валидный хэндл по-прежнему работает.
-    EXPECT_NO_THROW((void)regs->name());
-    EXPECT_NO_THROW((void)regs->children());
+    EXPECT_NO_THROW(std::ignore = regs->name());
+    EXPECT_NO_THROW(std::ignore = regs->children());
 }
 
 TEST(Hierarchy, InvalidScopeHandleThrows) {
@@ -379,28 +379,28 @@ TEST(Hierarchy, InvalidScopeHandleThrows) {
     ASSERT_FALSE(fromLookup.valid());
 
     for (const Scope& bad : {fromDefault, fromLookup}) {
-        EXPECT_NO_THROW((void)bad.valid());
-        EXPECT_NO_THROW((void)bad.id());
+        EXPECT_NO_THROW(std::ignore = bad.valid());
+        EXPECT_NO_THROW(std::ignore = bad.id());
         EXPECT_FALSE(static_cast<bool>(bad));
 
-        EXPECT_THROW((void)bad.name(), Exception);
-        EXPECT_THROW((void)bad.fullPath(), Exception);
-        EXPECT_THROW((void)bad.kind(), Exception);
-        EXPECT_THROW((void)bad.parent(), Exception);
-        EXPECT_THROW((void)bad.scopeCount(), Exception);
-        EXPECT_THROW((void)bad.scope(0), Exception);
-        EXPECT_THROW((void)bad.scope("x"), Exception);
-        EXPECT_THROW((void)bad.scopes(), Exception);
-        EXPECT_THROW((void)bad.signalCount(), Exception);
-        EXPECT_THROW((void)bad.signal(0), Exception);
-        EXPECT_THROW((void)bad.signal("x"), Exception);
-        EXPECT_THROW((void)bad.signals(), Exception);
-        EXPECT_THROW((void)bad.find("x"), Exception);
-        EXPECT_THROW((void)bad.findScope("x"), Exception);
+        EXPECT_THROW(std::ignore = bad.name(), Exception);
+        EXPECT_THROW(std::ignore = bad.fullPath(), Exception);
+        EXPECT_THROW(std::ignore = bad.kind(), Exception);
+        EXPECT_THROW(std::ignore = bad.parent(), Exception);
+        EXPECT_THROW(std::ignore = bad.scopeCount(), Exception);
+        EXPECT_THROW(std::ignore = bad.scope(0), Exception);
+        EXPECT_THROW(std::ignore = bad.scope("x"), Exception);
+        EXPECT_THROW(std::ignore = bad.scopes(), Exception);
+        EXPECT_THROW(std::ignore = bad.signalCount(), Exception);
+        EXPECT_THROW(std::ignore = bad.signal(0), Exception);
+        EXPECT_THROW(std::ignore = bad.signal("x"), Exception);
+        EXPECT_THROW(std::ignore = bad.signals(), Exception);
+        EXPECT_THROW(std::ignore = bad.find("x"), Exception);
+        EXPECT_THROW(std::ignore = bad.findScope("x"), Exception);
     }
 
-    EXPECT_NO_THROW((void)top->name());
-    EXPECT_NO_THROW((void)top->signals());
+    EXPECT_NO_THROW(std::ignore = top->name());
+    EXPECT_NO_THROW(std::ignore = top->signals());
 }
 
 // ---------------------------------------------------------------------------

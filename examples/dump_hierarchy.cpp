@@ -20,21 +20,18 @@ namespace {
 void dumpSignal(const WaSafe::Signal& sig, int indent) {
     const std::string pad(static_cast<size_t>(indent * 2), ' ');
     std::println("{}{} : {}", pad, sig.name(), WaSafe::toSvString(sig.type()));
-    for (const WaSafe::Signal child : sig.children()) {
+    for (const WaSafe::Signal child : sig.children())
         dumpSignal(child, indent + 1);  // члены структуры / элементы массива
-    }
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
 void dumpScope(const WaSafe::Scope& scope, int indent) {
     const std::string pad(static_cast<size_t>(indent * 2), ' ');
     std::println("{}[{}] {}", pad, WaSafe::toString(scope.kind()), scope.name());
-    for (const WaSafe::Signal sig : scope.signals()) {
+    for (const WaSafe::Signal sig : scope.signals())
         dumpSignal(sig, indent + 1);
-    }
-    for (const WaSafe::Scope child : scope.scopes()) {
+    for (const WaSafe::Scope child : scope.scopes())
         dumpScope(child, indent + 1);
-    }
 }
 
 }  // namespace
