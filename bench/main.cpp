@@ -471,7 +471,7 @@ void benchVerifyBlocks(Bench::Report& report, const Options& opts, const std::fi
             .num("plain_ms", plainMs)
             .num("verify_ms", verifyMs)
             .num("overhead", verifyMs / plainMs, 2)
-            .text("checksum", plainSeen == verifySeen ? "ok" : "РАЗОШЁЛСЯ");
+            .text("checksum", plainSeen == verifySeen ? "ok" : "MISMATCH");
 }
 
 // ---------------------------------------------------------------------------
@@ -607,8 +607,8 @@ int run(std::span<char* const> args) {
 
     const Bench::Spec spec = specOf(opts);
     if (!opts.csv) {
-        std::print("дамп: {} потоков, {} тиков, ~{} изменений\n\n", spec.streams,
-                static_cast<std::int64_t>(spec.endTime), Bench::estimateChanges(spec));
+        std::print("dump: {} streams, {} ticks, ~{} changes\n\n", spec.streams, static_cast<std::int64_t>(spec.endTime),
+                Bench::estimateChanges(spec));
     }
 
     Bench::Report report;
@@ -645,13 +645,13 @@ int main(int argc, char** argv) {
         return run(std::span{argv, static_cast<std::size_t>(argc)});
     }
     catch (const std::exception& e) {
-        std::ignore = std::fputs("ошибка: ", stderr);
+        std::ignore = std::fputs("error: ", stderr);
         std::ignore = std::fputs(e.what(), stderr);
         std::ignore = std::fputs("\n", stderr);
         return 1;
     }
     catch (...) {
-        std::ignore = std::fputs("ошибка: неизвестное исключение\n", stderr);
+        std::ignore = std::fputs("error: unknown exception\n", stderr);
         return 1;
     }
 }

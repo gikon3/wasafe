@@ -63,7 +63,7 @@ struct TempStore {
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char** argv) {
     if (argc < 4) {
-        std::println(stderr, "usage: query_range <signal.path> <begin> <end>   (напр. top.data 0 100)");
+        std::println(stderr, "usage: query_range <signal.path> <begin> <end>   (e.g. top.data 0 100)");
         return 2;
     }
     try {

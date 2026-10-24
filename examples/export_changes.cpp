@@ -71,7 +71,7 @@ int main() {
             ++count;
         }
 
-        std::println("$comment {} изменений, {} сигналов $end", count, leaves.size());
+        std::println("$comment {} changes, {} signals $end", count, leaves.size());
     }
     catch (const WaSafe::Exception& e) {
         std::println(stderr, "error: {}", e.what());
