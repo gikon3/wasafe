@@ -17,5 +17,7 @@ test_package/build/
 *.user
 
 # Сайдкар-индексы временных диаграмм
-*.wdbidx
-*.wdbstore
+*.wsfstore
+
+# Рабочие файлы субагентной разработки
+/.superpowers/
